@@ -1,0 +1,89 @@
+# .agentignore — Archivos ocultos para agentes IA
+# Equivalente al .gitignore pero para el contexto de los agentes.
+# Los archivos aquí listados no deben ser leídos ni procesados por agentes IA.
+
+# Secretos y credenciales
+.env
+.env.local
+.env.production
+.env.*.local
+**/.env
+**/*.pem
+**/*.key
+**/*.cert
+
+# Dependencias (demasiado volumen, no aportan contexto)
+node_modules/
+**/node_modules/
+.pnp
+.pnp.js
+
+# Build outputs (no son fuente de verdad)
+dist/
+build/
+.next/
+out/
+frontend/dist/
+backend/dist/
+
+# Caché
+.cache/
+.parcel-cache/
+**/.turbo/
+.tsbuildinfo
+**/.tsbuildinfo
+
+# Cobertura de tests (generado)
+coverage/
+**/coverage/
+*.lcov
+
+# Logs (no aportan contexto de diseño)
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Archivos del SO
+.DS_Store
+Thumbs.db
+*.DS_Store
+
+# IDE (configuración local, no del proyecto)
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Prisma — migraciones generadas (el esquema sí es relevante)
+backend/prisma/migrations/
+
+# Archivos temporales
+*.tmp
+*.temp
+*.bak
+
+# Binarios y assets grandes (imágenes, fuentes)
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.gif
+**/*.webp
+**/*.svg
+**/*.woff
+**/*.woff2
+**/*.ttf
+**/*.eot
+
+# Archivos de lock (demasiado volumen)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Shadcn UI — componentes base (no modificar, no necesitan contexto)
+frontend/src/app/components/ui/
