@@ -111,6 +111,8 @@ export interface Notification {
   message: string;
   relatedPatientId: string | null;
   relatedTestId: string | null;
+  patientName: string | null;
+  patientBed: string | null;
   read: boolean;
   /** ISO date string */
   createdAt: string;

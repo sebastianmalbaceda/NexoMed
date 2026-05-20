@@ -14,16 +14,33 @@ export const getNotifications = async (req: AuthRequest, res: Response) => {
       orderBy: { createdAt: 'desc' },
       take: 50,
       include: {
-        patient: { select: { name: true } }
+        patient: {
+          select: {
+            id: true,
+            name: true,
+            surnames: true,
+            bed: { select: { room: true, letter: true } }
+          }
+        }
       }
     });
 
-    // Add senderName from SSE events (if available in message)
-    const notificationsWithSender = notifications.map(n => ({
-      ...n,
-      senderName: n.message.includes('por ') ? n.message.split('por ')[1]?.trim() : undefined
-    }));
-    res.json(notificationsWithSender);
+    // Add senderName, patientName and patientBed to response
+    const enriched = notifications.map(n => {
+      const patientName = n.patient
+        ? `${n.patient.name} ${n.patient.surnames ?? ''}`.trim()
+        : null;
+      const patientBed = n.patient?.bed
+        ? `Hab. ${n.patient.bed.room}${n.patient.bed.letter}`
+        : null;
+      return {
+        ...n,
+        patientName,
+        patientBed,
+        senderName: n.message.includes('por ') ? n.message.split('por ')[1]?.trim() : undefined,
+      };
+    });
+    res.json(enriched);
   } catch (error) {
     return handlePrismaError(error, res);
   }

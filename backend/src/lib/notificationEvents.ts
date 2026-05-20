@@ -7,6 +7,8 @@ export interface NotificationEvent {
   type: string;
   message: string;
   relatedPatientId: string | null;
+  patientName: string | null;
+  patientBed: string | null;
   createdAt: string;
 }
 

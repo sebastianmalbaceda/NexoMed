@@ -192,6 +192,11 @@ export function DashboardOverview() {
                   <p className="text-sm font-medium text-foreground">
                     {NOTIFICATION_TYPE_LABELS[n.type] ?? n.type}
                   </p>
+                  {(n.patientName || n.patientBed) && (
+                    <p className="text-xs font-medium text-primary mt-0.5">
+                      {n.patientName}{n.patientName && n.patientBed ? ' — ' : ''}{n.patientBed}
+                    </p>
+                  )}
                   <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.message}</p>
                   <p className="text-xs text-muted-foreground/60 mt-1">
                     {new Date(n.createdAt).toLocaleTimeString('es-ES', {

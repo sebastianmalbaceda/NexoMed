@@ -118,6 +118,12 @@ export default function NotificationsPage() {
 
                     <p className="text-sm text-foreground">{n.message}</p>
 
+                    {(n.patientName || n.patientBed) && (
+                      <p className="text-xs font-medium text-primary mt-1">
+                        {n.patientName}{n.patientName && n.patientBed ? ' — ' : ''}{n.patientBed}
+                      </p>
+                    )}
+
                     <p className="text-xs text-muted-foreground mt-1">
                       {new Date(n.createdAt).toLocaleString('es-ES', {
                         day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',

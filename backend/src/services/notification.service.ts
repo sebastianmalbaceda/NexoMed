@@ -3,12 +3,29 @@ import { prisma } from '../lib/prismaClient';
 import { notificationBus } from '../lib/notificationEvents';
 import { AuthRequest } from '../middlewares/auth.middleware';
 
+async function getPatientInfo(patientId: string): Promise<{ patientName: string | null; patientBed: string | null }> {
+  const patient = await prisma.patient.findUnique({
+    where: { id: patientId },
+    select: {
+      name: true,
+      surnames: true,
+      bed: { select: { room: true, letter: true } },
+    },
+  });
+  if (!patient) return { patientName: null, patientBed: null };
+  const patientName = `${patient.name} ${patient.surnames ?? ''}`.trim() || null;
+  const patientBed = patient.bed ? `Hab. ${patient.bed.room}${patient.bed.letter}` : null;
+  return { patientName, patientBed };
+}
+
 export async function notifyNursesAboutMedicationChange(
   patientId: string,
   type: string,
   message: string,
   senderName?: string
 ) {
+  const patientInfo = await getPatientInfo(patientId);
+
   // Find the assigned nurse for this patient (if any)
   const patient = await prisma.patient.findUnique({
     where: { id: patientId },
@@ -44,6 +61,8 @@ export async function notifyNursesAboutMedicationChange(
       type,
       message,
       relatedPatientId: patientId,
+      patientName: patientInfo.patientName,
+      patientBed: patientInfo.patientBed,
       createdAt,
       senderName,
     });
@@ -57,6 +76,8 @@ export async function notifyNursesAboutDiagnosticTest(
   message: string,
   senderName?: string
 ) {
+  const patientInfo = await getPatientInfo(patientId);
+
   const nurses = await prisma.user.findMany({
     where: { role: 'NURSE' }
   });
@@ -82,6 +103,8 @@ export async function notifyNursesAboutDiagnosticTest(
       type,
       message,
       relatedPatientId: patientId,
+      patientName: patientInfo.patientName,
+      patientBed: patientInfo.patientBed,
       createdAt,
       senderName,
     });
@@ -95,6 +118,8 @@ export async function notifyNursesAboutIncident(
   message: string,
   senderName?: string
 ) {
+  const patientInfo = await getPatientInfo(patientId);
+
   const nurses = await prisma.user.findMany({
     where: { role: 'NURSE' }
   });
@@ -120,6 +145,8 @@ export async function notifyNursesAboutIncident(
       type,
       message,
       relatedPatientId: patientId,
+      patientName: patientInfo.patientName,
+      patientBed: patientInfo.patientBed,
       createdAt,
       senderName,
     });

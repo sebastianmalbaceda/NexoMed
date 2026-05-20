@@ -6,6 +6,7 @@ import { AuthRequest } from '../middlewares/auth.middleware';
 import { createDiagnosticTestSchema, updateTestResultSchema, updateDiagnosticTestSchema, updateTestStatusSchema } from '../validations/diagnosticTest.validation';
 import { handlePrismaError } from '../lib/errorHandler';
 import { notifyNursesAboutDiagnosticTest } from '../services/notification.service';
+import { notificationBus } from '../lib/notificationEvents';
 
 type DiagnosticTestsQuery = {
   patientId?: string;
@@ -141,16 +142,34 @@ export const createDiagnosticTest = async (req: AuthRequest, res: Response) => {
 
     // Notificar al médico si quien solicita es enfermera
     if (req.user!.role === 'NURSE') {
-      const patient = await prisma.patient.findUnique({ where: { id: patientId }, select: { name: true } });
+      const patient = await prisma.patient.findUnique({
+        where: { id: patientId },
+        select: { name: true, surnames: true, bed: { select: { room: true, letter: true } } }
+      });
+      const patientName = patient ? `${patient.name} ${patient.surnames ?? ''}`.trim() : null;
+      const patientBed = patient?.bed ? `Hab. ${patient.bed.room}${patient.bed.letter}` : null;
       const doctors = await prisma.user.findMany({ where: { role: 'DOCTOR' } });
+      const message = `${req.user!.name} solicita ${name} para ${patient?.name ?? 'el paciente'}`;
+      const createdAt = new Date().toISOString();
+
       for (const doctor of doctors) {
         await prisma.notification.create({
           data: {
             userId: doctor.id,
             type: 'TEST_REQUESTED',
-            message: `${req.user!.name} solicita ${name} para ${patient?.name ?? 'el paciente'}`,
+            message,
             relatedPatientId: patientId,
           }
+        });
+        notificationBus.emit('notification', {
+          userId: doctor.id,
+          type: 'TEST_REQUESTED',
+          message,
+          relatedPatientId: patientId,
+          patientName,
+          patientBed,
+          createdAt,
+          senderName: req.user!.name,
         });
       }
     } else {
@@ -195,14 +214,33 @@ export const updateTestStatus = async (req: AuthRequest, res: Response) => {
 
     // Notificar a quien solicitó la prueba
     if (test.requestedById !== req.user!.id) {
+      const patientInfo = await prisma.patient.findUnique({
+        where: { id: test.patientId },
+        select: { name: true, surnames: true, bed: { select: { room: true, letter: true } } },
+      });
+      const patientName = patientInfo ? `${patientInfo.name} ${patientInfo.surnames ?? ''}`.trim() : null;
+      const patientBed = patientInfo?.bed ? `Hab. ${patientInfo.bed.room}${patientInfo.bed.letter}` : null;
       const statusLabel = status === 'APPROVED' ? 'aprobada' : status === 'REJECTED' ? 'rechazada' : 'completada';
+      const message = `Tu prueba "${test.name}" ha sido ${statusLabel} por ${req.user!.name}`;
+      const createdAt = new Date().toISOString();
+
       await prisma.notification.create({
         data: {
           userId: test.requestedById,
           type: 'TEST_REVIEWED',
-          message: `Tu prueba "${test.name}" ha sido ${statusLabel} por ${req.user!.name}`,
+          message,
           relatedPatientId: test.patientId,
         }
+      });
+      notificationBus.emit('notification', {
+        userId: test.requestedById,
+        type: 'TEST_REVIEWED',
+        message,
+        relatedPatientId: test.patientId,
+        patientName,
+        patientBed,
+        createdAt,
+        senderName: req.user!.name,
       });
     }
 
