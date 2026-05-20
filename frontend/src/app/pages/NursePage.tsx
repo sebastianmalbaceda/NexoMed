@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -117,7 +117,16 @@ export default function NursePage() {
     queryKey: ['patients', 'nurse', userId],
     queryFn: () => api.get<Patient[]>(`/patients?nurseId=${userId}`),
   });
-  const selected = patients.find((p) => p.id === selectedId) ?? null;
+  const dedupedPatients = useMemo(() => {
+    const seen = new Set<string>();
+    return patients.filter((p) => {
+      const fullName = `${p.name} ${p.surnames ?? ''}`.trim().replace(/\s+/g, ' ');
+      if (seen.has(fullName)) return false;
+      seen.add(fullName);
+      return true;
+    });
+  }, [patients]);
+  const selected = dedupedPatients.find((p) => p.id === selectedId) ?? null;
 
   const { data: medications = [], isLoading: loadingMeds } = useQuery({
     queryKey: ['medications', selectedId],
@@ -218,7 +227,7 @@ export default function NursePage() {
       <div className="grid grid-cols-3 gap-4">
         <div className="rounded-2xl bg-blue-500 p-5 text-white shadow-lg shadow-blue-100">
           <p className="text-blue-100 text-xs font-bold uppercase tracking-wide mb-1">Pacientes</p>
-          <p className="text-3xl font-black">{patients.length}</p>
+            <p className="text-3xl font-black">{dedupedPatients.length}</p>
           <User className="w-5 h-5 text-blue-200 mt-2" />
         </div>
         <div className={`rounded-2xl p-5 text-white shadow-lg ${pendingMeds > 0 ? 'bg-red-500 shadow-red-100' : 'bg-emerald-500 shadow-emerald-100'}`}>
@@ -244,13 +253,13 @@ export default function NursePage() {
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
           <div className="px-4 py-3 bg-slate-800 flex items-center justify-between">
             <p className="text-xs font-black text-white uppercase tracking-widest">Pacientes</p>
-            <span className="text-xs bg-white/20 text-white font-bold px-2 py-0.5 rounded-full">{patients.length}</span>
+              <span className="text-xs bg-white/20 text-white font-bold px-2 py-0.5 rounded-full">{dedupedPatients.length}</span>
           </div>
           {isLoading ? (
             <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-slate-300" /></div>
           ) : (
             <ul className="divide-y divide-slate-100">
-              {patients.map((p) => {
+                {dedupedPatients.map((p) => {
                 const isSelected = selectedId === p.id;
                 const pNotifs = notifications.filter((n) => !n.read && n.relatedPatientId === p.id).length;
                 const hasAllergy = getAllergiesCount(p.allergies) > 0;
@@ -464,17 +473,20 @@ export default function NursePage() {
                                                 const dt = new Date(s.scheduledAt);
                                                 return `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}` === t;
                                               });
-                                              if (!isActive || done) {
+                                              if (!isActive) {
+                                                return (
+                                                  <span key={t} className="text-xs text-slate-300 font-medium">
+                                                    {t}
+                                                  </span>
+                                                );
+                                              }
+                                              if (done) {
                                                 return (
                                                   <span
                                                     key={t}
-                                                    className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-bold w-full justify-center ${
-                                                      done
-                                                        ? 'bg-emerald-100 border-emerald-300 text-emerald-700 line-through'
-                                                        : 'bg-white border-slate-200 text-slate-300'
-                                                    }`}
+                                                    className="flex items-center gap-1 text-xs bg-emerald-100 border border-emerald-300 text-emerald-700 line-through px-2 py-0.5 rounded-full font-bold w-full justify-center"
                                                   >
-                                                    {done ? <CheckCircle2 className="w-3 h-3 shrink-0" /> : <Clock className="w-3 h-3 shrink-0" />}
+                                                    <CheckCircle2 className="w-3 h-3 shrink-0" />
                                                     {t}
                                                   </span>
                                                 );

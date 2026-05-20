@@ -7,6 +7,7 @@ import { useNotificationToast } from '@/hooks/useNotificationToast';
 import { Sidebar } from '@/components/hospital/Sidebar';
 import { Header } from '@/components/hospital/Header';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { Toaster } from '@/components/ui/toaster';
 import LoginPage from '@/pages/LoginPage';
 import DashboardPage from '@/pages/DashboardPage';
 import PatientsPage from '@/pages/PatientsPage';
@@ -63,6 +64,7 @@ function AppLayout() {
           </div>
         </main>
       </div>
+      <Toaster />
     </div>
   );
 }
