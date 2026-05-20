@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useLocation } from 'react-router-dom';
 import {
   Pill, Loader2, User, AlertCircle, Plus, X, Check,
   Trash2,
@@ -41,9 +42,19 @@ type PrescriptionForm = z.infer<typeof prescriptionSchema>;
 
 export default function DoctorPage() {
   const qc = useQueryClient();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState(false);
+  const location = useLocation();
+  const state = location.state as { patientId?: string } | null;
+  const [selectedId, setSelectedId] = useState<string | null>(state?.patientId ?? null);
+  const [showForm, setShowForm] = useState(!!state?.patientId);
   const [successMsg, setSuccessMsg] = useState('');
+
+  useEffect(() => {
+    if (state?.patientId) {
+      setSelectedId(state.patientId);
+      setShowForm(true);
+      window.history.replaceState({}, '');
+    }
+  }, [state?.patientId]);
 
   const {
     register,

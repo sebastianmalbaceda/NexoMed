@@ -512,7 +512,7 @@ export default function BedMapPage() {
                     {/* Prescribe — doctor */}
                     {isDoctor && (
                       <button
-                        onClick={() => navigate(`/patients/${selectedBed.patient!.id}`)}
+                        onClick={() => navigate('/doctor', { state: { patientId: selectedBed.patient!.id } })}
                         className="w-full py-3.5 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-orange-100"
                       >
                         <Pill className="w-4 h-4" /> Pautar Medicación
