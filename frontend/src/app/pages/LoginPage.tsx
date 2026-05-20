@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { Mail, Lock, Loader2, ShieldPlus } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
+import { SEED_CREDENTIALS } from '@/lib/constants';
 import type { LoginResponse } from '@/lib/types';
 
 const loginSchema = z.object({
@@ -120,14 +121,14 @@ export default function LoginPage() {
               <span className="text-gray-500 font-medium">Demo:</span> Usa las credenciales del seed
             </p>
           </div>
-          <div className="flex gap-2 mb-1.5">
-            <span className="text-sm">👨‍⚕️</span>
-            <p className="m-0 text-xs text-gray-400">dr.garcia@nexomed.es / password123</p>
-          </div>
-          <div className="flex gap-2">
-            <span className="text-sm">👩‍⚕️</span>
-            <p className="m-0 text-xs text-gray-400">enf.martinez@nexomed.es / password123</p>
-          </div>
+          {SEED_CREDENTIALS.map((cred) => (
+            <div key={cred.email} className="flex gap-2 mb-1 last:mb-0">
+              <span className="text-sm">
+                {cred.role === 'DOCTOR' ? '👨‍⚕️' : cred.role === 'NURSE' ? '👩‍⚕️' : '🏥'}
+              </span>
+              <p className="m-0 text-xs text-gray-400">{cred.email} / {cred.password}</p>
+            </div>
+          ))}
         </div>
       </div>
 

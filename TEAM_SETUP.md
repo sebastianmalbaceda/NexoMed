@@ -92,12 +92,16 @@ Abre [http://localhost:5173](http://localhost:5173) en tu navegador.
 
 ## Credenciales de prueba
 
-| Rol | Email | Contraseña |
-|-----|-------|------------|
-| DOCTOR | dr.garcia@nexomed.es | password123 |
-| NURSE | enf.martinez@nexomed.es | password123 |
-| NURSE | enf.lopez@nexomed.es | password123 |
-| TCAE | tcae.sanchez@nexomed.es | password123 |
+| Rol | Email | Contraseña | Turno |
+|-----|-------|------------|-------|
+| DOCTOR | dr.garcia@nexomed.es | password123 | - |
+| NURSE | enf.martinez@nexomed.es | password123 | Mañana |
+| NURSE | enf.gomez@nexomed.es | password123 | Mañana |
+| NURSE | enf.lopez@nexomed.es | password123 | Tarde |
+| NURSE | enf.vera@nexomed.es | password123 | Tarde |
+| NURSE | enf.ruiz@nexomed.es | password123 | Noche |
+| TCAE | tcae.sanchez@nexomed.es | password123 | Tarde |
+| TCAE | tcae.exposito@nexomed.es | password123 | Noche |
 
 ---
 

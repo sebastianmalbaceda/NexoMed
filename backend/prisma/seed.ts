@@ -22,7 +22,7 @@ async function main() {
     create: { email: 'dr.garcia@nexomed.es', passwordHash, role: 'DOCTOR', name: 'Dr. Antonio García' },
   });
 
-  // Enfermeros — 2 por turno (mañana, tarde, noche)
+  // Enfermeros — Distribución de 5 enfermeros
   const nurseMorning1 = await prisma.user.upsert({
     where: { email: 'enf.martinez@nexomed.es' },
     update: { name: 'María Martínez', shift: 'morning' },
@@ -41,7 +41,7 @@ async function main() {
     create: { email: 'enf.lopez@nexomed.es', passwordHash, role: 'NURSE', name: 'Carlos López', shift: 'afternoon' },
   });
 
-  await prisma.user.upsert({
+  const nurseAfternoon2 = await prisma.user.upsert({
     where: { email: 'enf.vera@nexomed.es' },
     update: { name: 'Sofía Vera', shift: 'afternoon' },
     create: { email: 'enf.vera@nexomed.es', passwordHash, role: 'NURSE', name: 'Sofía Vera', shift: 'afternoon' },
@@ -53,24 +53,29 @@ async function main() {
     create: { email: 'enf.ruiz@nexomed.es', passwordHash, role: 'NURSE', name: 'Ana Ruiz', shift: 'night' },
   });
 
-  await prisma.user.upsert({
-    where: { email: 'enf.ramos@nexomed.es' },
-    update: { name: 'Miguel Ramos', shift: 'night' },
-    create: { email: 'enf.ramos@nexomed.es', passwordHash, role: 'NURSE', name: 'Miguel Ramos', shift: 'night' },
-  });
-
-  // Eliminar nurses que ya no existen (renombrados)
-  await prisma.user.deleteMany({
-    where: { email: { in: ['enf.noche@nexomed.es', 'enf.extra@nexomed.es'] } },
-  }).catch(() => { /* puede que no existan */ });
+  // Eliminar enfermeros sobrantes o renombrados (primero dependencias, luego usuarios)
+  const emailsToRemove = ['enf.ramos@nexomed.es', 'enf.noche@nexomed.es', 'enf.extra@nexomed.es'];
+  await prisma.notification.deleteMany({ where: { user: { email: { in: emailsToRemove } } } }).catch(() => {});
+  await prisma.medSchedule.deleteMany({ where: { administeredBy: { email: { in: emailsToRemove } } } }).catch(() => {});
+  await prisma.careRecord.deleteMany({ where: { recordedBy: { email: { in: emailsToRemove } } } }).catch(() => {});
+  await prisma.incident.deleteMany({ where: { reportedBy: { email: { in: emailsToRemove } } } }).catch(() => {});
+  await prisma.diagnosticTest.deleteMany({ where: { requestedBy: { email: { in: emailsToRemove } } } }).catch(() => {});
+  await prisma.medication.deleteMany({ where: { prescribedBy: { email: { in: emailsToRemove } } } }).catch(() => {});
+  await prisma.user.deleteMany({ where: { email: { in: emailsToRemove } } }).catch(() => {});
 
   await prisma.user.upsert({
     where: { email: 'tcae.sanchez@nexomed.es' },
-    update: { name: 'Laura Sánchez' },
-    create: { email: 'tcae.sanchez@nexomed.es', passwordHash, role: 'TCAE', name: 'Laura Sánchez' },
+    update: { name: 'Laura Sánchez', shift: 'afternoon' },
+    create: { email: 'tcae.sanchez@nexomed.es', passwordHash, role: 'TCAE', name: 'Laura Sánchez', shift: 'afternoon' },
   });
 
-  console.log('✅ Usuarios listos (8): 1 doctor, 6 enfermeros, 1 TCAE.');
+  await prisma.user.upsert({
+    where: { email: 'tcae.exposito@nexomed.es' },
+    update: { name: 'Jorge Expósito', shift: 'night' },
+    create: { email: 'tcae.exposito@nexomed.es', passwordHash, role: 'TCAE', name: 'Jorge Expósito', shift: 'night' },
+  });
+
+  console.log('✅ Usuarios listos (8): 1 doctor, 5 enfermeros, 2 TCAE.');
 
   // --- CAMAS ---
   console.log('Creating beds...');
@@ -344,10 +349,10 @@ async function main() {
   console.log('');
   console.log('  👩‍⚕️  ENFERMEROS — NOCHE (23:00-07:00)');
   console.log('      Ana Ruiz               →  enf.ruiz@nexomed.es');
-  console.log('      Miguel Ramos           →  enf.ramos@nexomed.es');
   console.log('');
   console.log('  🏥  TCAE');
-  console.log('      Laura Sánchez          →  tcae.sanchez@nexomed.es');
+  console.log('      Laura Sánchez          →  tcae.sanchez@nexomed.es (tarde)');
+  console.log('      Jorge Expósito         →  tcae.exposito@nexomed.es (noche)');
   console.log('');
   console.log(`  📊  ${patients.length} pacientes en ${beds.length} camas`);
   console.log('      Juan Pérez Ruiz        →  María Martínez (mañana)');

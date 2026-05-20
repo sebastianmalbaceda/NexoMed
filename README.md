@@ -113,8 +113,13 @@ Abre [http://localhost:5173](http://localhost:5173) en tu navegador.
 
 **Credenciales de prueba (seed):**
 - Médico: `dr.garcia@nexomed.es` / `password123`
-- Enfermero: `enf.martinez@nexomed.es` / `password123`
-- TCAE: `tcae.sanchez@nexomed.es` / `password123`
+- Enfermero (M): `enf.martinez@nexomed.es` / `password123`
+- Enfermero (M): `enf.gomez@nexomed.es` / `password123`
+- Enfermero (T): `enf.lopez@nexomed.es` / `password123`
+- Enfermero (T): `enf.vera@nexomed.es` / `password123`
+- Enfermero (N): `enf.ruiz@nexomed.es` / `password123`
+- TCAE (T): `tcae.sanchez@nexomed.es` / `password123`
+- TCAE (N): `tcae.exposito@nexomed.es` / `password123`
 
 ---
 

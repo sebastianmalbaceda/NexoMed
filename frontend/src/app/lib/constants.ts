@@ -29,9 +29,14 @@ export function getCurrentShift(): { label: string; emoji: string } {
 
 /** Seed quick-login credentials (matches backend seed.ts) */
 export const SEED_CREDENTIALS = [
-  { label: 'Dr. García',  role: 'DOCTOR' as Role, email: 'dr.garcia@nexomed.es',      password: 'password123' },
-  { label: 'Enf. Martínez', role: 'NURSE' as Role, email: 'enf.martinez@nexomed.es', password: 'password123' },
-  { label: 'TCAE Sánchez', role: 'TCAE'  as Role, email: 'tcae.sanchez@nexomed.es',  password: 'password123' },
+  { label: 'Dr. García',    role: 'DOCTOR' as Role, email: 'dr.garcia@nexomed.es',      password: 'password123' },
+  { label: 'Enf. Martínez', role: 'NURSE' as Role,  email: 'enf.martinez@nexomed.es',   password: 'password123' },
+  { label: 'Enf. Gómez',    role: 'NURSE' as Role,  email: 'enf.gomez@nexomed.es',      password: 'password123' },
+  { label: 'Enf. López',    role: 'NURSE' as Role,  email: 'enf.lopez@nexomed.es',      password: 'password123' },
+  { label: 'Enf. Vera',     role: 'NURSE' as Role,  email: 'enf.vera@nexomed.es',       password: 'password123' },
+  { label: 'Enf. Ruiz',     role: 'NURSE' as Role,  email: 'enf.ruiz@nexomed.es',       password: 'password123' },
+  { label: 'TCAE Sánchez',  role: 'TCAE'  as Role,  email: 'tcae.sanchez@nexomed.es',   password: 'password123' },
+  { label: 'TCAE Expósito', role: 'TCAE'  as Role,  email: 'tcae.exposito@nexomed.es',  password: 'password123' },
 ] as const;
 
 export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
