@@ -3,6 +3,7 @@
 import { EventEmitter } from 'events';
 
 export interface NotificationEvent {
+  id: string;
   userId: string;
   type: string;
   message: string;

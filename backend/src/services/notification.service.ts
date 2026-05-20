@@ -44,19 +44,14 @@ export async function notifyNursesAboutMedicationChange(
     return;
   }
 
-  const notifications = validNurses.map(nurse => ({
-    userId: nurse.id,
-    type,
-    message,
-    relatedPatientId: patientId
-  }));
-
-  // Insertar primero, luego emitir eventos SSE
-  await prisma.notification.createMany({ data: notifications });
-
   const createdAt = new Date().toISOString();
+
   for (const nurse of validNurses) {
+    const notif = await prisma.notification.create({
+      data: { userId: nurse.id, type, message, relatedPatientId: patientId },
+    });
     notificationBus.emit('notification', {
+      id: notif.id,
       userId: nurse.id,
       type,
       message,
@@ -87,18 +82,14 @@ export async function notifyNursesAboutDiagnosticTest(
     return;
   }
 
-  const notifications = nurses.map(nurse => ({
-    userId: nurse.id,
-    type,
-    message,
-    relatedPatientId: patientId
-  }));
-
-  await prisma.notification.createMany({ data: notifications });
-
   const createdAt = new Date().toISOString();
+
   for (const nurse of nurses) {
+    const notif = await prisma.notification.create({
+      data: { userId: nurse.id, type, message, relatedPatientId: patientId },
+    });
     notificationBus.emit('notification', {
+      id: notif.id,
       userId: nurse.id,
       type,
       message,
@@ -129,18 +120,14 @@ export async function notifyNursesAboutIncident(
     return;
   }
 
-  const notifications = nurses.map(nurse => ({
-    userId: nurse.id,
-    type,
-    message,
-    relatedPatientId: patientId
-  }));
-
-  await prisma.notification.createMany({ data: notifications });
-
   const createdAt = new Date().toISOString();
+
   for (const nurse of nurses) {
+    const notif = await prisma.notification.create({
+      data: { userId: nurse.id, type, message, relatedPatientId: patientId },
+    });
     notificationBus.emit('notification', {
+      id: notif.id,
       userId: nurse.id,
       type,
       message,

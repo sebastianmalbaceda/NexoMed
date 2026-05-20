@@ -153,7 +153,7 @@ export const createDiagnosticTest = async (req: AuthRequest, res: Response) => {
       const createdAt = new Date().toISOString();
 
       for (const doctor of doctors) {
-        await prisma.notification.create({
+        const notif = await prisma.notification.create({
           data: {
             userId: doctor.id,
             type: 'TEST_REQUESTED',
@@ -162,6 +162,7 @@ export const createDiagnosticTest = async (req: AuthRequest, res: Response) => {
           }
         });
         notificationBus.emit('notification', {
+          id: notif.id,
           userId: doctor.id,
           type: 'TEST_REQUESTED',
           message,
@@ -224,7 +225,7 @@ export const updateTestStatus = async (req: AuthRequest, res: Response) => {
       const message = `Tu prueba "${test.name}" ha sido ${statusLabel} por ${req.user!.name}`;
       const createdAt = new Date().toISOString();
 
-      await prisma.notification.create({
+      const notif = await prisma.notification.create({
         data: {
           userId: test.requestedById,
           type: 'TEST_REVIEWED',
@@ -233,6 +234,7 @@ export const updateTestStatus = async (req: AuthRequest, res: Response) => {
         }
       });
       notificationBus.emit('notification', {
+        id: notif.id,
         userId: test.requestedById,
         type: 'TEST_REVIEWED',
         message,
