@@ -482,7 +482,12 @@ export default function BedMapPage() {
                   <div className="pt-4 border-t border-slate-100 space-y-3">
                     {/* Ver paciente — todos los roles */}
                     <button
-                      onClick={() => { closePanel(); navigate(`/patients/${selectedBed.patient!.id}`); }}
+                      onClick={() => {
+                        closePanel();
+                        navigate(user?.role === 'TCAE'
+                          ? `/vitals?patientId=${selectedBed.patient!.id}`
+                          : `/patients/${selectedBed.patient!.id}`);
+                      }}
                       className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-100"
                     >
                       <ExternalLink className="w-4 h-4" /> Ver ficha del paciente

@@ -6,13 +6,12 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
-import type { DiagnosticTest } from '@/lib/types';
 
 // SYS-RF6: cronograma de las tareas a realizarle al paciente dentro de su perfil.
 
 interface ScheduleItem {
   id: string;
-  source: 'MEDICATION' | 'CARE_RECORD';
+  source: 'MEDICATION' | 'CARE_RECORD' | 'DIAGNOSTIC_TEST';
   type: string;
   timestamp: string;
   status: 'completed' | 'delayed' | 'pending';
@@ -53,6 +52,27 @@ const SOURCE_LABELS: Record<string, string> = {
   DIAGNOSTIC_TEST: 'Prueba diagnóstica',
 };
 
+function getCurrentShiftRange(): { start: Date; end: Date } {
+  const now = new Date();
+  const h = now.getHours();
+  const start = new Date(now);
+  const end = new Date(now);
+  if (h >= 7 && h < 15) {
+    start.setHours(7, 0, 0, 0); end.setHours(14, 59, 59, 999);
+  } else if (h >= 15 && h < 23) {
+    start.setHours(15, 0, 0, 0); end.setHours(22, 59, 59, 999);
+  } else if (h >= 23) {
+    start.setHours(23, 0, 0, 0);
+    const nd = new Date(now); nd.setDate(nd.getDate() + 1); nd.setHours(6, 59, 59, 999);
+    return { start, end: nd };
+  } else {
+    const pd = new Date(now); pd.setDate(pd.getDate() - 1); pd.setHours(23, 0, 0, 0);
+    end.setHours(6, 59, 59, 999);
+    return { start: pd, end };
+  }
+  return { start, end };
+}
+
 export function PatientSchedule({ patientId }: { patientId: string }) {
   const { user } = useAuthStore();
   const qc = useQueryClient();
@@ -70,12 +90,6 @@ export function PatientSchedule({ patientId }: { patientId: string }) {
     enabled: !!patientId,
   });
 
-  const { data: tests = [], isLoading: loadingTests } = useQuery({
-    queryKey: ['patient-tests-schedule', patientId],
-    queryFn: () => api.get<DiagnosticTest[]>(`/tests/${patientId}`),
-    enabled: !!patientId,
-  });
-
   const [administerError, setAdministerError] = useState<string>('');
 
   const administerMutation = useMutation({
@@ -90,41 +104,17 @@ export function PatientSchedule({ patientId }: { patientId: string }) {
     onError: (e: Error) => setAdministerError(e.message),
   });
 
-  // Filtramos pruebas al día seleccionado
-  const dayStart = new Date(`${selectedDate}T00:00:00`);
-  const dayEnd = new Date(`${selectedDate}T23:59:59`);
-
-  const testsItems: TimelineItem[] = tests
-    .filter((t) => {
-      const ts = new Date(t.scheduledAt);
-      return ts >= dayStart && ts <= dayEnd;
-    })
-    .map((t) => ({
-      id: `test-${t.id}`,
-      source: 'DIAGNOSTIC_TEST' as const,
-      timestamp: t.scheduledAt,
-      status: (t.status === 'COMPLETED' || t.status === 'CANCELLED'
-        ? 'completed'
-        : new Date(t.scheduledAt).getTime() < Date.now()
-        ? 'delayed'
-        : 'pending'),
-      title: t.name,
-      details: `${t.type === 'LAB' ? 'Laboratorio' : 'Diagnóstico por imagen'} · Solicitado por ${t.requestedBy}`,
-    }));
-
-  const scheduleTimeline: TimelineItem[] = scheduleItems.map((s) => ({
-    id: s.id,
-    source: s.source,
-    timestamp: s.timestamp,
-    status: s.status,
-    title: s.title,
-    details: s.details,
-    scheduleId: s.source === 'MEDICATION' ? s.id : undefined,
-  }));
-
-  const allItems = [...scheduleTimeline, ...testsItems].sort(
-    (a, b) => a.timestamp.localeCompare(b.timestamp)
-  );
+  const allItems: TimelineItem[] = scheduleItems
+    .map((s) => ({
+      id: s.id,
+      source: s.source,
+      timestamp: s.timestamp,
+      status: s.status,
+      title: s.title,
+      details: s.details,
+      scheduleId: s.source === 'MEDICATION' ? s.id : undefined,
+    }))
+    .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
   const counts = {
     pending: allItems.filter((i) => i.status === 'pending').length,
@@ -150,8 +140,9 @@ export function PatientSchedule({ patientId }: { patientId: string }) {
   });
   const isToday = selectedDate === new Date().toISOString().split('T')[0];
 
-  const isLoading = loadingSchedule || loadingTests;
+  const isLoading = loadingSchedule;
   const canAdminister = user?.role === 'NURSE';
+  const shiftRange = getCurrentShiftRange();
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
@@ -237,7 +228,9 @@ export function PatientSchedule({ patientId }: { patientId: string }) {
                     {item.source === 'MEDICATION' &&
                       item.status !== 'completed' &&
                       canAdminister &&
-                      item.scheduleId && (
+                      item.scheduleId &&
+                      new Date(item.timestamp) >= shiftRange.start &&
+                      new Date(item.timestamp) <= shiftRange.end && (
                         <button
                           onClick={() => administerMutation.mutate(item.scheduleId!)}
                           disabled={administerMutation.isPending}

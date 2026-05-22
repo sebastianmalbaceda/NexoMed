@@ -2,15 +2,40 @@
 import { Response } from 'express';
 import { prisma } from '../lib/prismaClient';
 import { AuthRequest } from '../middlewares/auth.middleware';
-import { generateSchedulesForMedication, reschedulePendingMedication } from '../services/medication.service';
+import { generateSchedulesForMedication, reschedulePendingMedication, ensureSchedulesForPeriod } from '../services/medication.service';
 import { notifyNursesAboutMedicationChange } from '../services/notification.service';
 import { createMedicationSchema, updateScheduleSchema } from '../validations/medication.validation';
 import { handlePrismaError } from '../lib/errorHandler';
 
-function getShift(hour: number): 'morning' | 'afternoon' | 'night' {
-  if (hour >= 7 && hour < 15) return 'morning';
-  if (hour >= 15 && hour < 23) return 'afternoon';
-  return 'night';
+// Returns the [start, end] timestamps of the currently active shift.
+// Night shift (23:00–06:59) crosses midnight, so we handle both halves.
+function getCurrentShiftRange(now: Date): { start: Date; end: Date } {
+  const h = now.getHours();
+  const start = new Date(now);
+  const end = new Date(now);
+
+  if (h >= 7 && h < 15) {
+    start.setHours(7, 0, 0, 0);
+    end.setHours(14, 59, 59, 999);
+  } else if (h >= 15 && h < 23) {
+    start.setHours(15, 0, 0, 0);
+    end.setHours(22, 59, 59, 999);
+  } else if (h >= 23) {
+    // Night, first half: 23:00 today → 06:59 tomorrow
+    start.setHours(23, 0, 0, 0);
+    const nextDay = new Date(now);
+    nextDay.setDate(nextDay.getDate() + 1);
+    nextDay.setHours(6, 59, 59, 999);
+    return { start, end: nextDay };
+  } else {
+    // Night, second half: 23:00 yesterday → 06:59 today
+    const prevDay = new Date(now);
+    prevDay.setDate(prevDay.getDate() - 1);
+    prevDay.setHours(23, 0, 0, 0);
+    end.setHours(6, 59, 59, 999);
+    return { start: prevDay, end };
+  }
+  return { start, end };
 }
 
 // GET /api/medications/:patientId — medicación activa del paciente
@@ -19,19 +44,31 @@ export const getMedications = async (req: AuthRequest, res: Response) => {
   try {
     const medications = await prisma.medication.findMany({
       where: { patientId, active: true },
+      include: { prescribedBy: { select: { name: true, role: true } } },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    // Ensure each active medication has pending schedules for the next 72 h
+    await Promise.all(
+      medications.map((med) =>
+        ensureSchedulesForPeriod(med.id, med.startTime, med.frequencyHrs)
+      )
+    );
+
+    // Re-fetch with updated schedules
+    const medicationsWithSchedules = await prisma.medication.findMany({
+      where: { patientId, active: true },
       include: {
         schedules: {
           orderBy: { scheduledAt: 'asc' },
-          include: {
-            administeredBy: { select: { name: true } }
-          }
+          include: { administeredBy: { select: { name: true } } }
         },
         prescribedBy: { select: { name: true, role: true } }
       },
       orderBy: { createdAt: 'desc' }
     });
 
-    const serialized = medications.map(med => ({
+    const serialized = medicationsWithSchedules.map(med => ({
       ...med,
       prescribedById: med.prescribedBy?.name,
       schedules: med.schedules.map(s => ({
@@ -91,7 +128,7 @@ export const createMedication = async (req: AuthRequest, res: Response) => {
       }
 
       if (schedules.length > 0) {
-        await tx.medSchedule.createMany({ data: schedules });
+        await tx.medSchedule.createMany({ data: schedules, skipDuplicates: true });
       }
 
       return med;
@@ -218,17 +255,9 @@ export const administerSchedule = async (req: AuthRequest, res: Response) => {
     const now = new Date();
     const scheduledDate = new Date(schedule.scheduledAt);
 
-    // Validar que la dosis corresponde al día actual
-    if (
-      scheduledDate.getFullYear() !== now.getFullYear() ||
-      scheduledDate.getMonth() !== now.getMonth() ||
-      scheduledDate.getDate() !== now.getDate()
-    ) {
-      return res.status(403).json({ error: 'Solo puedes administrar medicación programada para hoy' });
-    }
-
-    // Validar que la dosis pertenece al turno actual
-    if (getShift(scheduledDate.getHours()) !== getShift(now.getHours())) {
+    // Validate the dose falls within the current shift window (handles night shift crossing midnight)
+    const shiftRange = getCurrentShiftRange(now);
+    if (scheduledDate < shiftRange.start || scheduledDate > shiftRange.end) {
       return res.status(403).json({ error: 'Solo puedes administrar medicación de tu turno actual' });
     }
 

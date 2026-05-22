@@ -3,9 +3,10 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import {
   Activity, AlertCircle, AlertTriangle, CheckCircle2, Loader2, Clock,
-  Pill, FileWarning,
+  Pill, FileWarning, ClipboardList,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { parseAllergies, getAllergiesCount } from '@/lib/patientUtils';
@@ -137,9 +138,25 @@ const vitalsSchema = z.object({
 
 type VitalsForm = z.infer<typeof vitalsSchema>;
 
+// TCAE-RF1 care types
+const TCAE_CARE_TYPES = [
+  { value: 'higiene',  label: '🧼 Higiene del paciente' },
+  { value: 'ingesta',  label: '🍽️ Ingesta de alimentos' },
+  { value: 'balance',  label: '💧 Balance hídrico parcial' },
+];
+
+const tcaeCareSchema = z.object({
+  type: z.enum(['higiene', 'ingesta', 'balance'], { message: 'Tipo no válido' }),
+  value: z.string().min(1, 'El valor es obligatorio'),
+  notes: z.string().optional(),
+});
+type TCAECareForm = z.infer<typeof tcaeCareSchema>;
+
 export default function TCAEPage() {
   const qc = useQueryClient();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
+  const urlPatientId = searchParams.get('patientId');
+  const [selectedId, setSelectedId] = useState<string | null>(urlPatientId);
   const [successMsg, setSuccessMsg] = useState('');
   const [errors, setErrors] = useState<string[]>([]);
   const [incidentSuccess, setIncidentSuccess] = useState('');
@@ -153,6 +170,27 @@ export default function TCAEPage() {
   } = useForm<IncidentForm>({
     resolver: zodResolver(incidentSchema),
     defaultValues: { type: 'MED_REFUSAL', description: '' },
+  });
+
+  const [careSuccess, setCareSuccess] = useState('');
+  const {
+    register: registerCare,
+    handleSubmit: handleSubmitCare,
+    reset: resetCare,
+    formState: { errors: careErrors },
+  } = useForm<TCAECareForm>({
+    resolver: zodResolver(tcaeCareSchema),
+    defaultValues: { type: 'higiene', value: '', notes: '' },
+  });
+  const careMutation = useMutation({
+    mutationFn: (body: { patientId: string; type: string; value: string; notes?: string }) =>
+      api.post<CareRecord>('/cares', body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cares', selectedId] });
+      resetCare();
+      setCareSuccess('Cuidado registrado');
+      setTimeout(() => setCareSuccess(''), 3000);
+    },
   });
 
   const {
@@ -447,7 +485,9 @@ export default function TCAEPage() {
                         <li key={inc.id} className="bg-red-50 border-l-4 border-red-400 rounded-xl px-3 py-2">
                           <div className="flex justify-between items-start gap-2">
                             <p className="text-xs font-black text-red-700">{INCIDENT_TYPES.find((t) => t.value === inc.type)?.label ?? inc.type}</p>
-                            <span className="text-[10px] text-slate-400 shrink-0 font-bold">
+                            <span className="text-[10px] text-slate-400 shrink-0 font-bold whitespace-nowrap">
+                              {new Date(inc.reportedAt).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })}
+                              {' '}
                               {new Date(inc.reportedAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
                             </span>
                           </div>
@@ -457,6 +497,47 @@ export default function TCAEPage() {
                     </ul>
                   )}
                 </div>
+              </div>
+
+              {/* TCAE-RF1: Hygiene, food intake, fluid balance */}
+              <div className="bg-white border border-slate-200 border-t-4 border-t-emerald-400 rounded-2xl overflow-hidden shadow-sm">
+                <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100">
+                  <div className="w-7 h-7 rounded-xl bg-emerald-500 flex items-center justify-center">
+                    <ClipboardList className="w-3.5 h-3.5 text-white" />
+                  </div>
+                  <h3 className="font-black text-slate-900">Registrar cuidado</h3>
+                  <span className="ml-auto text-[10px] bg-emerald-100 text-emerald-700 font-black px-2 py-0.5 rounded-full">TCAE-RF1</span>
+                </div>
+                <form onSubmit={handleSubmitCare((data) => {
+                  if (!selectedId) return;
+                  careMutation.mutate({ patientId: selectedId, ...data, notes: data.notes?.trim() || undefined });
+                })} className="p-5 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Tipo de cuidado</label>
+                      <select {...registerCare('type')}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-slate-300">
+                        {TCAE_CARE_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                      </select>
+                      {careErrors.type && <p className="text-xs text-red-500 mt-1">{careErrors.type.message}</p>}
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Valor / Descripción *</label>
+                      <input type="text" placeholder="ej: aseo completo, 75% bandeja, 500 mL..." {...registerCare('value')}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 ring-slate-300" />
+                      {careErrors.value && <p className="text-xs text-red-500 mt-1">{careErrors.value.message}</p>}
+                    </div>
+                  </div>
+                  <input type="text" placeholder="Observaciones (opcional)" {...registerCare('notes')}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 ring-slate-300" />
+                  {careSuccess && <div className="flex items-center gap-2 text-sm text-emerald-600 font-bold"><CheckCircle2 className="w-4 h-4" />{careSuccess}</div>}
+                  {careMutation.isError && <div className="flex items-center gap-2 text-sm text-red-600 font-bold"><AlertCircle className="w-3.5 h-3.5" />{(careMutation.error as Error).message}</div>}
+                  <button type="submit" disabled={careMutation.isPending}
+                    className="flex items-center gap-2 bg-slate-900 text-white text-sm font-bold px-5 py-2.5 rounded-xl hover:bg-black transition-colors disabled:opacity-50 shadow-sm">
+                    {careMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                    Registrar cuidado
+                  </button>
+                </form>
               </div>
 
               {/* Vitals form */}

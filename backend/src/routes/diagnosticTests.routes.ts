@@ -1,7 +1,7 @@
 // src/routes/diagnosticTests.routes.ts
 import { Router } from 'express';
 import { authenticate, authorize } from '../middlewares/auth.middleware';
-import { getAllDiagnosticTests, getDiagnosticTests, createDiagnosticTest, addTestResult, updateTestStatus } from '../controllers/diagnosticTests.controller';
+import { getAllDiagnosticTests, getDiagnosticTests, createDiagnosticTest, addTestResult, updateTestStatus, deleteDiagnosticTest } from '../controllers/diagnosticTests.controller';
 
 const router = Router();
 
@@ -143,5 +143,7 @@ router.put('/:id/status', authenticate, authorize('DOCTOR'), updateTestStatus);
  *         description: Prueba no encontrada
  */
 router.put('/:id/result', authenticate, authorize('DOCTOR', 'NURSE'), addTestResult);
+
+router.delete('/:id', authenticate, authorize('DOCTOR'), deleteDiagnosticTest);
 
 export default router;

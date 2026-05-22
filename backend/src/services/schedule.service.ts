@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prismaClient';
 import type { GetScheduleQuery, ShiftKey } from '../validations/schedule.validation';
+import { ensureSchedulesForPeriod } from './medication.service';
 
 type DateRange = { start: Date; end: Date };
 
@@ -61,6 +62,20 @@ export async function getScheduleItems(query: GetScheduleQuery) {
   const dayRange = buildDayRange(query.date);
   const range = query.shift ? buildShiftRange(dayRange, query.shift) : dayRange;
   const now = new Date();
+
+  // Ensure DB has up-to-date schedules for all active medications in this query,
+  // so the shift schedule page shows current doses even without loading NursePage first.
+  const activeMeds = await prisma.medication.findMany({
+    where: {
+      active: true,
+      ...(query.patientId ? { patientId: query.patientId } : {}),
+      ...(query.nurseId ? { patient: { assignedNurseId: query.nurseId } } : {}),
+    },
+    select: { id: true, startTime: true, frequencyHrs: true },
+  });
+  await Promise.all(
+    activeMeds.map((med) => ensureSchedulesForPeriod(med.id, med.startTime, med.frequencyHrs))
+  );
 
   // SYS-RF5: el filtro nurseId limita las tareas a pacientes asignados a ese enfermero.
   const patientFilter =
@@ -166,5 +181,43 @@ export async function getScheduleItems(query: GetScheduleQuery) {
     },
   }));
 
-  return [...medicationItems, ...careItems].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const diagnosticTests = await prisma.diagnosticTest.findMany({
+    where: {
+      scheduledAt: { gte: range.start, lte: range.end },
+      status: { in: ['APPROVED', 'COMPLETED'] },
+      ...(query.patientId ? { patientId: query.patientId } : {}),
+      ...(query.nurseId ? { patient: { assignedNurseId: query.nurseId } } : {}),
+    },
+    orderBy: { scheduledAt: 'asc' },
+    include: {
+      patient: {
+        select: {
+          id: true,
+          name: true,
+          assignedNurseId: true,
+          bed: { select: { room: true, letter: true } },
+        },
+      },
+      requestedBy: { select: { id: true, name: true } },
+    },
+  });
+
+  const testItems = diagnosticTests.map((test) => ({
+    id: test.id,
+    source: 'DIAGNOSTIC_TEST',
+    type: 'diagnostic-test',
+    timestamp: test.scheduledAt.toISOString(),
+    status: (test.status === 'COMPLETED' || test.status === 'CANCELLED'
+      ? 'completed'
+      : test.scheduledAt < now ? 'delayed' : 'pending') as 'completed' | 'delayed' | 'pending',
+    patientId: test.patient.id,
+    patientName: test.patient.name,
+    assignedNurseId: test.patient.assignedNurseId,
+    room: roomLabel(test.patient.bed),
+    title: test.name,
+    details: `${test.type === 'LAB' ? 'Laboratorio' : 'Diagnóstico por imagen'} · Solicitado por ${test.requestedBy.name}`,
+    metadata: { testType: test.type, result: test.result },
+  }));
+
+  return [...medicationItems, ...careItems, ...testItems].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 }

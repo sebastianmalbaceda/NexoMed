@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Calendar, ChevronLeft, ChevronRight, Loader2, Clock, Pill, Activity,
-  CheckCircle2, AlertCircle, AlertTriangle, Filter, User
+  CheckCircle2, AlertCircle, AlertTriangle, Filter, User, TestTube,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
@@ -15,7 +15,7 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; icon: string; la
 
 interface ScheduleItem {
   id: string;
-  source: 'MEDICATION' | 'CARE_RECORD';
+  source: 'MEDICATION' | 'CARE_RECORD' | 'DIAGNOSTIC_TEST';
   type: string;
   timestamp: string;
   status: 'completed' | 'delayed' | 'pending';
@@ -91,6 +91,7 @@ export default function NurseShiftSchedulePage() {
 
   const medicationItems = filteredItems.filter(i => i.source === 'MEDICATION');
   const careItems = filteredItems.filter(i => i.source === 'CARE_RECORD');
+  const testItems = filteredItems.filter(i => i.source === 'DIAGNOSTIC_TEST');
 
   const completedCount = filteredItems.filter(i => i.status === 'completed').length;
   const pendingCount = filteredItems.filter(i => i.status === 'pending').length;
@@ -307,6 +308,52 @@ export default function NurseShiftSchedulePage() {
                             <span className="text-sm font-black text-slate-900">{item.title}</span>
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-emerald-700 bg-emerald-100">
                               ✅ Completado
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 font-medium">{item.details}</p>
+                          <div className="flex items-center gap-3 mt-1.5">
+                            <span className="flex items-center gap-1 text-[10px] text-slate-400 font-bold">
+                              <Clock className="w-3 h-3" />{time}
+                            </span>
+                            <span className="flex items-center gap-1 text-[10px] text-slate-400 font-bold">
+                              <User className="w-3 h-3" />{item.patientName}
+                            </span>
+                            {item.room && (
+                              <span className="text-[10px] bg-slate-100 text-slate-500 font-bold px-1.5 py-0.5 rounded">
+                                Hab. {item.room}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+
+          {testItems.length > 0 && (
+            <div className="bg-white border border-slate-200 border-t-4 border-t-violet-400 rounded-2xl overflow-hidden shadow-sm">
+              <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100">
+                <div className="w-8 h-8 rounded-xl bg-violet-500 flex items-center justify-center">
+                  <TestTube className="w-4 h-4 text-white" />
+                </div>
+                <h3 className="font-black text-slate-900">Pruebas Diagnósticas</h3>
+                <span className="ml-auto text-xs bg-slate-100 text-slate-500 font-bold px-2 py-0.5 rounded-full">{testItems.length}</span>
+              </div>
+              <ul className="divide-y divide-slate-100">
+                {testItems.map((item) => {
+                  const statusStyle = STATUS_STYLES[item.status] ?? STATUS_STYLES.pending;
+                  const time = new Date(item.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+                  return (
+                    <li key={item.id} className={`px-5 py-4 bg-violet-50/30 border-l-4 ${item.status === 'completed' ? 'border-l-emerald-400' : item.status === 'delayed' ? 'border-l-red-400' : 'border-l-violet-400'}`}>
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-sm font-black text-slate-900">{item.title}</span>
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${statusStyle.text} bg-white/60`}>
+                              {statusStyle.icon} {statusStyle.label}
                             </span>
                           </div>
                           <p className="text-xs text-slate-500 font-medium">{item.details}</p>

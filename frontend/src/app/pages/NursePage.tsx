@@ -52,42 +52,42 @@ function getCurrentShift(): 'morning' | 'afternoon' | 'night' {
   return 'night';
 }
 
-function isTimeInShift(timeStr: string, shift: 'morning' | 'afternoon' | 'night'): boolean {
-  const [h] = timeStr.split(':').map(Number);
-  switch (shift) {
-    case 'morning': return h >= 7 && h < 15;
-    case 'afternoon': return h >= 15 && h < 23;
-    case 'night': return h >= 23 || h < 7;
-  }
-}
+type ShiftKey = 'morning' | 'afternoon' | 'night';
+type ShiftWindows = Record<ShiftKey, { start: Date; end: Date }>;
 
-/** Returns today's dose times for a medication */
-function calcDoseTimes(startTime: string, frequencyHrs: number): string[] {
-  const start = new Date(startTime);
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const todayEnd = new Date(today); todayEnd.setHours(23, 59, 59, 999);
-  let t = new Date(start);
-  while (t < today) t = new Date(t.getTime() + frequencyHrs * 3_600_000);
-  const times: string[] = [];
-  while (t <= todayEnd) {
-    times.push(`${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`);
-    t = new Date(t.getTime() + frequencyHrs * 3_600_000);
-  }
-  if (times.length === 0) {
-    const h = start.getHours();
-    const count = Math.max(1, Math.round(24 / frequencyHrs));
-    for (let i = 0; i < count; i++) {
-      const hh = h + i * frequencyHrs;
-      if (hh < 24) times.push(`${String(hh).padStart(2, '0')}:00`);
-    }
-  }
-  return times;
-}
+/** Returns absolute Date ranges for each shift (night correctly crosses midnight).
+ *  During afternoon the night window points to TONIGHT so upcoming 00:xx doses appear. */
+function getShiftWindows(): ShiftWindows {
+  const now = new Date();
+  const h = now.getHours();
 
-/** Numeric minutes for a "HH:MM" string — avoids locale comparison issues */
-function toMin(hhmm: string): number {
-  const [h, m] = hhmm.split(':').map(Number);
-  return h * 60 + (m || 0);
+  const d = (base: Date, daysOffset: number, hh: number, mm: number, ss: number, ms: number) => {
+    const out = new Date(base);
+    out.setDate(out.getDate() + daysOffset);
+    out.setHours(hh, mm, ss, ms);
+    return out;
+  };
+
+  // Afternoon (15-22): upcoming night = tonight 23:00 → tomorrow 06:59
+  // Night first-half (23-23:59): current night = tonight 23:00 → tomorrow 06:59
+  // Morning / night second-half (00-14): past/current night = yesterday 23:00 → today 06:59
+  let nightStart: Date, nightEnd: Date;
+  if (h >= 15 && h < 23) {
+    nightStart = d(now, 0, 23, 0, 0, 0);
+    nightEnd   = d(now, 1, 6, 59, 59, 999);
+  } else if (h >= 23) {
+    nightStart = d(now, 0, 23, 0, 0, 0);
+    nightEnd   = d(now, 1, 6, 59, 59, 999);
+  } else {
+    nightStart = d(now, -1, 23, 0, 0, 0);
+    nightEnd   = d(now, 0, 6, 59, 59, 999);
+  }
+
+  return {
+    morning:   { start: d(now, 0, 7,  0, 0,   0), end: d(now, 0, 14, 59, 59, 999) },
+    afternoon: { start: d(now, 0, 15, 0, 0,   0), end: d(now, 0, 22, 59, 59, 999) },
+    night:     { start: nightStart, end: nightEnd },
+  };
 }
 
 export default function NursePage() {
@@ -116,6 +116,8 @@ export default function NursePage() {
   const { data: patients = [], isLoading, isError } = useQuery({
     queryKey: ['patients', 'nurse', userId],
     queryFn: () => api.get<Patient[]>(`/patients?nurseId=${userId}`),
+    refetchOnMount: 'always',
+    refetchInterval: 60_000,
   });
   const dedupedPatients = useMemo(() => {
     const seen = new Set<string>();
@@ -195,25 +197,27 @@ export default function NursePage() {
     },
   });
 
-  function getMedTimes(med: Medication): string[] {
-    return calcDoseTimes(med.startTime, med.frequencyHrs);
+  const shiftWindows = getShiftWindows();
+  const now = new Date();
+
+  function getSchedulesInWindow(med: Medication, win: { start: Date; end: Date }) {
+    const inWindow = (med.schedules || [])
+      .filter(s => { const dt = new Date(s.scheduledAt); return dt >= win.start && dt <= win.end; });
+    // Deduplicate by scheduledAt — keep administered record if there are duplicates
+    const seen = new Map<number, typeof inWindow[0]>();
+    for (const s of inWindow) {
+      const t = new Date(s.scheduledAt).getTime();
+      const existing = seen.get(t);
+      if (!existing || s.administeredAt) seen.set(t, s);
+    }
+    return Array.from(seen.values())
+      .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
   }
 
-  const administered = new Set(
-    medications.flatMap(m => 
-      (m.schedules || [])
-        .filter(s => s.administeredAt)
-        .map(s => {
-          const dt = new Date(s.scheduledAt);
-          return `${m.id}__${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
-        })
-    )
-  );
-
-  const pendingMeds = medications.reduce((acc, med) =>
-    acc + getMedTimes(med).filter((t) => !administered.has(`${med.id}__${t}`)).length, 0);
-
-  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  const pendingMeds = medications.reduce((acc, med) => {
+    const all = Object.values(shiftWindows).flatMap(win => getSchedulesInWindow(med, win));
+    return acc + all.filter(s => !s.administeredAt).length;
+  }, 0);
 
   return (
     <div className="space-y-6">
@@ -381,9 +385,9 @@ export default function NursePage() {
                 ) : (
                   <div className="divide-y divide-slate-100">
                     {medications.map((m) => {
-                      const times = getMedTimes(m);
-                      const allDone = times.every((t) => administered.has(`${m.id}__${t}`));
-                      const someDone = times.some((t) => administered.has(`${m.id}__${t}`));
+                      const allMedSchedules = Object.values(shiftWindows).flatMap(win => getSchedulesInWindow(m, win));
+                      const allDone = allMedSchedules.length > 0 && allMedSchedules.every(s => !!s.administeredAt);
+                      const someDone = allMedSchedules.some(s => !!s.administeredAt);
                       const isEditing = editingMedId === m.id;
 
                       return (
@@ -413,7 +417,7 @@ export default function NursePage() {
                             </button>
                           </div>
 
-                          {/* ENF-RF2: Schedule editor — solo cambio de hora */}
+                          {/* ENF-RF2: Schedule editor */}
                           {isEditing && (
                             <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3">
                               <p className="text-xs font-black text-amber-800 uppercase tracking-wide mb-2">Cambiar hora de inicio</p>
@@ -446,76 +450,74 @@ export default function NursePage() {
                             </div>
                           )}
 
-                           {/* Cronograma por turno */}
-                           {(() => {
-                             const currentShift = getCurrentShift();
-                             const SHIFTS = [
-                               { key: 'morning'   as const, label: '🌅 Mañana', color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200'  },
-                               { key: 'afternoon' as const, label: '🌆 Tarde',  color: 'text-orange-700',  bg: 'bg-orange-50',  border: 'border-orange-200' },
-                               { key: 'night'     as const, label: '🌙 Noche',  color: 'text-indigo-700',  bg: 'bg-indigo-50',  border: 'border-indigo-200' },
-                             ];
-                             return (
-                               <div className="grid grid-cols-3 gap-2">
-                                 {SHIFTS.map(({ key, label, color, bg, border }) => {
-                                   const shiftTimes = times.filter(t => isTimeInShift(t, key));
-                                   const isActive = key === currentShift;
-                                   return (
-                                     <div key={key} className={`rounded-xl border p-2 ${isActive ? `${bg} ${border}` : 'bg-slate-50 border-slate-100 opacity-60'}`}>
-                                       <p className={`text-[10px] font-black uppercase tracking-wide mb-1.5 ${isActive ? color : 'text-slate-400'}`}>{label}</p>
-                                       {shiftTimes.length === 0 ? (
-                                         <p className="text-[10px] text-slate-300 italic">—</p>
-                                       ) : (
-                                         <div className="flex flex-col gap-1">
-                                            {shiftTimes.map(t => {
-                                              const done = administered.has(`${m.id}__${t}`);
-                                              const isPast = toMin(t) <= nowMin;
-                                              const schedule = (m.schedules || []).find(s => {
-                                                const dt = new Date(s.scheduledAt);
-                                                return `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}` === t;
-                                              });
-                                              if (!isActive) {
-                                                return (
-                                                  <span key={t} className="text-xs text-slate-300 font-medium">
-                                                    {t}
-                                                  </span>
-                                                );
-                                              }
-                                              if (done) {
-                                                return (
-                                                  <span
-                                                    key={t}
-                                                    className="flex items-center gap-1 text-xs bg-emerald-100 border border-emerald-300 text-emerald-700 line-through px-2 py-0.5 rounded-full font-bold w-full justify-center"
-                                                  >
-                                                    <CheckCircle2 className="w-3 h-3 shrink-0" />
-                                                    {t}
-                                                  </span>
-                                                );
-                                              }
+                          {/* Cronograma por turno */}
+                          {(() => {
+                            const currentShift = getCurrentShift();
+                            const ALL_SHIFTS = {
+                              morning:   { key: 'morning'   as const, label: '🌅 Mañana', color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200'  },
+                              afternoon: { key: 'afternoon' as const, label: '🌆 Tarde',  color: 'text-orange-700',  bg: 'bg-orange-50',  border: 'border-orange-200' },
+                              night:     { key: 'night'     as const, label: '🌙 Noche',  color: 'text-indigo-700',  bg: 'bg-indigo-50',  border: 'border-indigo-200' },
+                            };
+                            const SHIFTS =
+                              currentShift === 'morning'   ? [ALL_SHIFTS.night,     ALL_SHIFTS.morning,   ALL_SHIFTS.afternoon] :
+                              currentShift === 'afternoon' ? [ALL_SHIFTS.morning,   ALL_SHIFTS.afternoon, ALL_SHIFTS.night    ] :
+                                                             [ALL_SHIFTS.afternoon, ALL_SHIFTS.night];
+                            const cols = SHIFTS.length === 2 ? 'grid-cols-2' : 'grid-cols-3';
+                            return (
+                              <div className={`grid ${cols} gap-2`}>
+                                {SHIFTS.map(({ key, label, color, bg, border }) => {
+                                  const shiftSchedules = getSchedulesInWindow(m, shiftWindows[key]);
+                                  const isActive = key === currentShift;
+                                  return (
+                                    <div key={key} className={`rounded-xl border p-2 ${isActive ? `${bg} ${border}` : 'bg-slate-50 border-slate-100 opacity-60'}`}>
+                                      <p className={`text-[10px] font-black uppercase tracking-wide mb-1.5 ${isActive ? color : 'text-slate-400'}`}>{label}</p>
+                                      {shiftSchedules.length === 0 ? (
+                                        <p className="text-[10px] text-slate-300 italic">—</p>
+                                      ) : (
+                                        <div className="flex flex-col gap-1">
+                                          {shiftSchedules.map(s => {
+                                            const dt = new Date(s.scheduledAt);
+                                            const timeStr = `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+                                            const done = !!s.administeredAt;
+                                            const isPast = dt <= now;
+                                            if (!isActive) {
                                               return (
-                                                <button
-                                                  key={t}
-                                                  onClick={() => schedule && administerMutation.mutate({ scheduleId: schedule.id })}
-                                                  disabled={administerMutation.isPending}
-                                                  title={isPast ? 'Administrar (vencido)' : 'Marcar como administrado'}
-                                                  className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-bold w-full justify-center transition-all ${
-                                                    isPast
-                                                      ? 'bg-red-50 border-red-300 text-red-600 hover:bg-red-100'
-                                                      : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-100'
-                                                  }`}
-                                                >
-                                                  <Clock className="w-3 h-3 shrink-0" />
-                                                  {t}
-                                                </button>
+                                                <span key={s.id} className="text-xs text-slate-300 font-medium">{timeStr}</span>
                                               );
-                                            })}
-                                         </div>
-                                       )}
-                                     </div>
-                                   );
-                                 })}
-                               </div>
-                             );
-                           })()}
+                                            }
+                                            if (done) {
+                                              return (
+                                                <span key={s.id} className="flex items-center gap-1 text-xs bg-emerald-100 border border-emerald-300 text-emerald-700 line-through px-2 py-0.5 rounded-full font-bold w-full justify-center">
+                                                  <CheckCircle2 className="w-3 h-3 shrink-0" />
+                                                  {timeStr}
+                                                </span>
+                                              );
+                                            }
+                                            return (
+                                              <button
+                                                key={s.id}
+                                                onClick={() => administerMutation.mutate({ scheduleId: s.id })}
+                                                disabled={administerMutation.isPending}
+                                                title={isPast ? 'Administrar (vencido)' : 'Marcar como administrado'}
+                                                className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-bold w-full justify-center transition-all disabled:opacity-50 ${
+                                                  isPast
+                                                    ? 'bg-red-50 border-red-300 text-red-600 hover:bg-red-100'
+                                                    : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-100'
+                                                }`}
+                                              >
+                                                <Clock className="w-3 h-3 shrink-0" />
+                                                {timeStr}
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })()}
                         </div>
                       );
                     })}

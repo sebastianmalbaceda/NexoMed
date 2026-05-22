@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   TestTube, FlaskConical, ImageIcon, Loader2, ChevronDown,
-  Plus, X, Calendar, CheckCircle2, Clock, ThumbsUp, ThumbsDown,
+  Plus, X, Calendar, CheckCircle2, Clock, ThumbsUp, ThumbsDown, Ban,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
@@ -17,6 +17,7 @@ const STATUS_LABELS: Record<string, string> = {
   APPROVED: 'Aprobada',
   REJECTED: 'Rechazada',
   COMPLETED: 'Completada',
+  CANCELLED: 'Cancelada',
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -24,6 +25,7 @@ const STATUS_COLORS: Record<string, string> = {
   APPROVED: 'bg-blue-100 text-blue-700 border-blue-300',
   REJECTED: 'bg-red-100 text-red-700 border-red-300',
   COMPLETED: 'bg-emerald-100 text-emerald-700 border-emerald-300',
+  CANCELLED: 'bg-slate-100 text-slate-500 border-slate-300',
 };
 
 const scheduleSchema = z.object({
@@ -155,7 +157,7 @@ export default function DiagnosticTestsPage() {
             className={`flex items-center gap-2 text-sm font-bold px-4 py-2.5 rounded-2xl transition-all shadow-sm ${showForm ? 'bg-slate-200 text-slate-700' : 'bg-slate-900 text-white hover:bg-black'}`}
           >
             {showForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-            {showForm ? 'Cancelar' : 'Solicitar prueba'}
+            {showForm ? 'Cancelar' : isDoctor ? 'Asignar prueba' : 'Solicitar prueba'}
           </button>
         )}
 
@@ -198,7 +200,7 @@ export default function DiagnosticTestsPage() {
           <button type="submit" disabled={scheduleMutation.isPending}
             className="flex items-center gap-2 bg-blue-600 text-white text-sm font-bold px-5 py-2.5 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm shadow-blue-200">
             {scheduleMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-            Confirmar programación
+            {isDoctor ? 'Asignar prueba' : 'Enviar solicitud'}
           </button>
         </form>
       )}
@@ -278,6 +280,11 @@ function TestSection({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tests'] }),
   });
 
+  const cancelMutation = useMutation({
+    mutationFn: (testId: string) => api.delete(`/tests/${testId}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tests'] }),
+  });
+
   return (
     <div className={`bg-white border border-slate-200 border-t-4 ${accentBorder} rounded-2xl overflow-hidden shadow-sm`}>
       <div className={`flex items-center gap-3 px-5 py-4 border-b border-slate-100`}>
@@ -300,7 +307,7 @@ function TestSection({
                   <div className="flex items-center gap-2 min-w-0">
                     <p className="font-bold text-slate-900 text-sm truncate">{t.name}</p>
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap justify-end">
                     <span className={`text-[10px] font-black px-2 py-0.5 rounded shrink-0 border ${STATUS_COLORS[status]}`}>
                       {STATUS_LABELS[status]}
                     </span>
@@ -321,6 +328,16 @@ function TestSection({
                           <ThumbsDown className="w-3 h-3" /> Rechazar
                         </button>
                       </>
+                    )}
+                    {isDoctor && status !== 'COMPLETED' && (
+                      <button
+                        onClick={() => cancelMutation.mutate(t.id)}
+                        disabled={cancelMutation.isPending}
+                        title="Eliminar prueba"
+                        className="flex items-center gap-1 text-[10px] font-bold bg-slate-200 text-slate-600 px-2 py-0.5 rounded hover:bg-red-100 hover:text-red-600 transition-colors"
+                      >
+                        <Ban className="w-3 h-3" /> Cancelar
+                      </button>
                     )}
                   </div>
                 </div>

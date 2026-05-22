@@ -83,7 +83,7 @@ export default function App() {
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<ProtectedRoute allowedRoles={['DOCTOR', 'NURSE', 'TCAE']}><DashboardPage /></ProtectedRoute>} />
               <Route path="/patients" element={<ProtectedRoute allowedRoles={['DOCTOR', 'NURSE']}><PatientsPage /></ProtectedRoute>} />
-              <Route path="/patients/:patientId" element={<ProtectedRoute allowedRoles={['DOCTOR', 'NURSE']}><PatientsPage /></ProtectedRoute>} />
+              <Route path="/patients/:patientId" element={<ProtectedRoute allowedRoles={['DOCTOR', 'NURSE', 'TCAE']}><PatientsPage /></ProtectedRoute>} />
               <Route path="/beds" element={<ProtectedRoute allowedRoles={['DOCTOR', 'NURSE', 'TCAE']}><BedMapPage /></ProtectedRoute>} />
               <Route path="/doctor" element={<ProtectedRoute allowedRoles={['DOCTOR']}><DoctorPage /></ProtectedRoute>} />
               <Route path="/nurse" element={<ProtectedRoute allowedRoles={['NURSE']}><NursePage /></ProtectedRoute>} />

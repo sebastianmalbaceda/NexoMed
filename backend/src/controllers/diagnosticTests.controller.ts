@@ -129,6 +129,8 @@ export const createDiagnosticTest = async (req: AuthRequest, res: Response) => {
 
   const { patientId, type, name, scheduledAt } = validation.data;
   try {
+    // Doctors' tests are pre-approved; only nurse requests need doctor review
+    const initialStatus = req.user!.role === 'DOCTOR' ? 'APPROVED' : 'REQUESTED';
     const test = await prisma.diagnosticTest.create({
       data: {
         patientId,
@@ -136,7 +138,7 @@ export const createDiagnosticTest = async (req: AuthRequest, res: Response) => {
         name,
         scheduledAt: new Date(scheduledAt),
         requestedById: req.user!.id,
-        status: 'REQUESTED',
+        status: initialStatus,
       }
     });
 
@@ -247,6 +249,17 @@ export const updateTestStatus = async (req: AuthRequest, res: Response) => {
     }
 
     res.json(test);
+  } catch (error) {
+    return handlePrismaError(error, res);
+  }
+};
+
+// DELETE /api/tests/:id — eliminar prueba (DOCTOR)
+export const deleteDiagnosticTest = async (req: AuthRequest, res: Response) => {
+  const { id } = req.params as { id: string };
+  try {
+    await prisma.diagnosticTest.delete({ where: { id } });
+    res.status(204).end();
   } catch (error) {
     return handlePrismaError(error, res);
   }

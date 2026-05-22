@@ -4,12 +4,12 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Search, AlertCircle, Loader2, Calendar, BedDouble, ArrowLeft, Activity, Pill, FileText, Clock, UserPlus, X, Check, LogOut, HeartPulse } from 'lucide-react';
+import { Search, AlertCircle, Loader2, Calendar, BedDouble, ArrowLeft, Activity, Pill, FileText, Clock, UserPlus, X, Check, LogOut, HeartPulse, TestTube, Ban, Plus, ThumbsUp, ThumbsDown, FlaskConical, ImageIcon } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { parseAllergies, getAllergiesCount } from '@/lib/patientUtils';
 import { PatientSchedule } from '@/components/hospital/PatientSchedule';
-import type { Patient, Medication, CareRecord, VitalSigns, Bed } from '@/lib/types';
+import type { Patient, Medication, CareRecord, VitalSigns, Bed, DiagnosticTest } from '@/lib/types';
 
 // Computed once at module load — avoids impure Date.now() calls during render
 const NOW_MS = new Date().getTime();
@@ -84,6 +84,12 @@ export default function PatientsPage() {
     enabled: !!patientId,
   });
 
+  const { data: patientTests = [], isLoading: loadingTests } = useQuery({
+    queryKey: ['tests', patientId],
+    queryFn: () => api.get<DiagnosticTest[]>(`/tests/${patientId}`),
+    enabled: !!patientId,
+  });
+
   const selectedPatient = patientId ? patients.find((p) => p.id === patientId) : null;
   const { user } = useAuthStore();
   const queryClient = useQueryClient();
@@ -145,6 +151,38 @@ export default function PatientsPage() {
       queryClient.invalidateQueries({ queryKey: ['patients'] });
       setShowStatusEdit(false);
     },
+  });
+
+  // Pruebas diagnósticas
+  const [showTestForm, setShowTestForm] = useState(false);
+  const [testType, setTestType]     = useState<'LAB' | 'IMAGING'>('LAB');
+  const [testName, setTestName]     = useState('');
+  const [testDate, setTestDate]     = useState('');
+
+  const createTestMutation = useMutation({
+    mutationFn: () => api.post<DiagnosticTest>('/tests', {
+      patientId: selectedPatient!.id, type: testType, name: testName,
+      scheduledAt: new Date(testDate).toISOString(),
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tests', selectedPatient!.id] });
+      setShowTestForm(false); setTestName(''); setTestDate('');
+    },
+  });
+
+  const cancelTestMutation = useMutation({
+    mutationFn: (testId: string) => api.delete(`/tests/${testId}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tests', selectedPatient!.id] }),
+  });
+
+  const approveTestMutation = useMutation({
+    mutationFn: (testId: string) => api.put(`/tests/${testId}/status`, { status: 'APPROVED' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tests', selectedPatient!.id] }),
+  });
+
+  const rejectTestMutation = useMutation({
+    mutationFn: (testId: string) => api.put(`/tests/${testId}/status`, { status: 'REJECTED' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tests', selectedPatient!.id] }),
   });
 
   // Formulario de registro / re-ingreso
@@ -247,11 +285,11 @@ export default function PatientsPage() {
     return (
       <div className="space-y-5">
         <button
-          onClick={() => navigate('/patients')}
+          onClick={() => navigate(user?.role === 'TCAE' ? '/vitals' : '/patients')}
           className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-          Volver a pacientes
+          {user?.role === 'TCAE' ? 'Volver a constantes' : 'Volver a pacientes'}
         </button>
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -474,6 +512,129 @@ export default function PatientsPage() {
               </ul>
             )}
           </div>
+        </div>
+
+        {/* Pruebas diagnósticas */}
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <div className="flex items-center gap-2 px-5 py-4 border-b border-border">
+            <TestTube className="w-5 h-5 text-violet-500" />
+            <h3 className="font-semibold text-foreground">Pruebas diagnósticas</h3>
+            <span className="text-xs bg-slate-100 text-slate-500 font-bold px-2 py-0.5 rounded-full">
+              {patientTests.filter(t => t.status !== 'CANCELLED').length}
+            </span>
+            {isDoctor && (
+              <button
+                onClick={() => setShowTestForm(v => !v)}
+                className={`ml-auto flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors ${showTestForm ? 'bg-slate-200 text-slate-700' : 'bg-violet-600 text-white hover:bg-violet-700'}`}
+              >
+                {showTestForm ? <X className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+                {showTestForm ? 'Cancelar' : 'Asignar prueba'}
+              </button>
+            )}
+          </div>
+
+          {showTestForm && isDoctor && (
+            <div className="px-5 py-4 border-b border-border bg-violet-50">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Tipo</label>
+                  <select value={testType} onChange={e => setTestType(e.target.value as 'LAB' | 'IMAGING')}
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-violet-400/30">
+                    <option value="LAB">Laboratorio</option>
+                    <option value="IMAGING">Diagnóstico por imagen</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Nombre *</label>
+                  <input type="text" value={testName} onChange={e => setTestName(e.target.value)}
+                    placeholder="ej: Hemograma, Rx Tórax..."
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 ring-violet-400/30" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Fecha programada *</label>
+                  <input type="datetime-local" value={testDate} onChange={e => setTestDate(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-violet-400/30" />
+                </div>
+              </div>
+              <button
+                onClick={() => createTestMutation.mutate()}
+                disabled={createTestMutation.isPending || !testName || !testDate}
+                className="flex items-center gap-1.5 bg-violet-600 text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-violet-700 transition-colors disabled:opacity-50"
+              >
+                {createTestMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                Asignar prueba
+              </button>
+            </div>
+          )}
+
+          {loadingTests ? (
+            <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-slate-300" /></div>
+          ) : patientTests.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">Sin pruebas diagnósticas</p>
+          ) : (
+            <ul className="divide-y divide-border">
+              {patientTests.map(t => {
+                const statusColors: Record<string, string> = {
+                  REQUESTED: 'bg-amber-100 text-amber-700 border-amber-300',
+                  APPROVED:  'bg-blue-100 text-blue-700 border-blue-300',
+                  REJECTED:  'bg-red-100 text-red-700 border-red-300',
+                  COMPLETED: 'bg-emerald-100 text-emerald-700 border-emerald-300',
+                  CANCELLED: 'bg-slate-100 text-slate-500 border-slate-300',
+                };
+                const statusLabels: Record<string, string> = {
+                  REQUESTED: 'Solicitada', APPROVED: 'Aprobada', REJECTED: 'Rechazada',
+                  COMPLETED: 'Completada', CANCELLED: 'Cancelada',
+                };
+                return (
+                  <li key={t.id} className="px-5 py-3 flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-2 min-w-0">
+                      <div className="mt-0.5 shrink-0">
+                        {t.type === 'LAB'
+                          ? <FlaskConical className="w-4 h-4 text-orange-500" />
+                          : <ImageIcon className="w-4 h-4 text-violet-500" />}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-foreground truncate">{t.name}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {new Date(t.scheduledAt).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          {t.requestedBy ? ` · ${t.requestedBy}` : ''}
+                        </p>
+                        {t.result && (
+                          <p className="text-xs bg-emerald-50 border border-emerald-100 rounded px-2 py-1 text-slate-700 mt-1">
+                            <span className="font-bold text-emerald-700">Resultado: </span>{t.result}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                      <span className={`text-[10px] font-black px-2 py-0.5 rounded border ${statusColors[t.status] ?? statusColors.APPROVED}`}>
+                        {statusLabels[t.status] ?? t.status}
+                      </span>
+                      {isDoctor && t.status === 'REQUESTED' && (
+                        <>
+                          <button onClick={() => approveTestMutation.mutate(t.id)} disabled={approveTestMutation.isPending}
+                            className="flex items-center gap-1 text-[10px] font-bold bg-emerald-500 text-white px-2 py-0.5 rounded hover:bg-emerald-600 transition-colors">
+                            <ThumbsUp className="w-3 h-3" /> Aceptar
+                          </button>
+                          <button onClick={() => rejectTestMutation.mutate(t.id)} disabled={rejectTestMutation.isPending}
+                            className="flex items-center gap-1 text-[10px] font-bold bg-red-500 text-white px-2 py-0.5 rounded hover:bg-red-600 transition-colors">
+                            <ThumbsDown className="w-3 h-3" /> Rechazar
+                          </button>
+                        </>
+                      )}
+                      {isDoctor && t.status !== 'COMPLETED' && (
+                        <button onClick={() => cancelTestMutation.mutate(t.id)} disabled={cancelTestMutation.isPending}
+                          title="Eliminar prueba"
+                          className="flex items-center gap-1 text-[10px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded hover:bg-red-100 hover:text-red-600 transition-colors">
+                          <Ban className="w-3 h-3" /> Cancelar
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
 
         <div className="bg-card border border-border rounded-xl overflow-hidden">

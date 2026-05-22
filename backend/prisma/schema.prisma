@@ -87,6 +87,7 @@ model MedSchedule {
   administeredById String?
   administeredBy   User?      @relation("AdministeredBy", fields: [administeredById], references: [id])
   medication       Medication @relation(fields: [medicationId], references: [id])
+
 }
 
 model CareRecord {
