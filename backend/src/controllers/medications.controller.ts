@@ -191,20 +191,31 @@ export const updateMedication = async (req: AuthRequest, res: Response) => {
     const parsedStart = new Date(startTime);
     const parsedEnd = endDate ? new Date(endDate) : null;
 
+    // Use the exact administeredAt of the last administered dose as the schedule
+    // anchor. The form sends startTime rounded to minutes, which would cause a
+    // phantom duplicate alongside the already-administered entry at full precision.
+    const lastAdministered = await prisma.medSchedule.findFirst({
+      where: { medicationId: id, administeredAt: { not: null } },
+      orderBy: { administeredAt: "desc" },
+      select: { administeredAt: true },
+    });
+    const anchor = lastAdministered?.administeredAt ?? parsedStart;
+
     await prisma.$transaction(async (tx) => {
-      // Delete all pending schedules so they get regenerated
       await tx.medSchedule.deleteMany({
         where: { medicationId: id, administeredAt: null },
       });
 
       await tx.medication.update({
         where: { id },
-        data: { drugName, nregistro, dose, route, frequencyHrs, startTime: parsedStart, endDate: parsedEnd },
+        data: { drugName, nregistro, dose, route, frequencyHrs, startTime: anchor, endDate: parsedEnd },
       });
     });
 
-    // Regenerate schedules for the next 72h (ensureSchedulesForPeriod handles the window)
-    await ensureSchedulesForPeriod(id, parsedStart, frequencyHrs, parsedEnd);
+    // Start generating from anchor + frequencyHrs so no slot lands on the
+    // already-administered dose and there are no duplicates.
+    const nextStart = new Date(anchor.getTime() + frequencyHrs * 3_600_000);
+    await ensureSchedulesForPeriod(id, nextStart, frequencyHrs, parsedEnd);
 
     await notifyNursesAboutMedicationChange(
       medication.patientId,
@@ -350,13 +361,47 @@ export const administerSchedule = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    const updated = await prisma.medSchedule.update({
-      where: { id: scheduleId },
-      data: {
-        administeredAt: new Date(),
-        administeredById: req.user!.id,
-      },
+    const administeredAt = new Date();
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const result = await tx.medSchedule.update({
+        where: { id: scheduleId },
+        data: {
+          scheduledAt: administeredAt,
+          administeredAt,
+          administeredById: req.user!.id,
+        },
+      });
+
+      // Remove every pending schedule for this medication except the one just
+      // administered, so the slate is clean before recalculation.
+      await tx.medSchedule.deleteMany({
+        where: {
+          medicationId: schedule.medication.id,
+          administeredAt: null,
+          id: { not: scheduleId },
+        },
+      });
+
+      // Shift the medication anchor so GET /medications doesn't regenerate
+      // schedules at the old fixed times (which would cause duplicates).
+      await tx.medication.update({
+        where: { id: schedule.medication.id },
+        data: { startTime: administeredAt },
+      });
+
+      return result;
     });
+
+    // Generate new pending schedules anchored to the actual administration time.
+    const nextStart = new Date(administeredAt.getTime() + schedule.medication.frequencyHrs * 3_600_000);
+    await ensureSchedulesForPeriod(
+      schedule.medication.id,
+      nextStart,
+      schedule.medication.frequencyHrs,
+      schedule.medication.endDate,
+    );
+
     res.json(updated);
   } catch (error) {
     return handlePrismaError(error, res);
