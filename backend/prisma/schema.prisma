@@ -19,6 +19,7 @@ model User {
   recordedCareRecords   CareRecord[]     @relation("RecordedBy")
   requestedTests        DiagnosticTest[] @relation("RequestedBy")
   reportedIncidents     Incident[]       @relation("ReportedBy")
+  resolvedIncidents    Incident[]       @relation("ResolvedBy")
   administeredSchedules MedSchedule[]    @relation("AdministeredBy")
   prescribedMeds        Medication[]     @relation("PrescribedBy")
   notifications         Notification[]
