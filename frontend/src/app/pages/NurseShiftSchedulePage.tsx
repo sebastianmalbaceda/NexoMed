@@ -92,6 +92,15 @@ export default function NurseShiftSchedulePage() {
   const medicationItems = filteredItems.filter(i => i.source === 'MEDICATION');
   const careItems = filteredItems.filter(i => i.source === 'CARE_RECORD');
   const testItems = filteredItems.filter(i => i.source === 'DIAGNOSTIC_TEST');
+  const patientGroups = (() => {
+    const groups = new Map();
+    for (const item of filteredItems) {
+      const key = item.patientId;
+      if (!groups.has(key)) groups.set(key, { patientName: item.patientName, room: item.room, items: [] });
+      groups.get(key).items.push(item);
+    }
+    return Array.from(groups.values()).sort((a, b) => a.patientName.localeCompare(b.patientName));
+  })();
 
   const completedCount = filteredItems.filter(i => i.status === 'completed').length;
   const pendingCount = filteredItems.filter(i => i.status === 'pending').length;
@@ -159,6 +168,7 @@ export default function NurseShiftSchedulePage() {
 
           <div className="flex items-center gap-2 ml-auto flex-wrap">
             <Filter className="w-4 h-4 text-slate-400" />
+            <button onClick={() => setGroupByPatient(v => !v)} className={`text-xs font-bold px-3 py-2 rounded-lg transition-colors ${groupByPatient ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{groupByPatient ? 'Por tipo' : 'Por paciente'}</button>
             {/* SYS-RF5: filtro por enfermero */}
             {user?.role === 'NURSE' && (
               <select

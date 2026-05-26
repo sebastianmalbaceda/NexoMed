@@ -288,13 +288,13 @@ export const administerSchedule = async (req: AuthRequest, res: Response) => {
     const now = new Date();
     const scheduledDate = new Date(schedule.scheduledAt);
 
-    // Validate the dose falls within the current calendar day.
-    // Nurses can administer any pending dose scheduled for today, regardless of shift.
-    const dayRange = getCurrentDayRange(now);
-    if (scheduledDate < dayRange.start || scheduledDate > dayRange.end) {
+    // Validate the dose falls within the current shift.
+    // Frontend already hides the button for doses outside the shift (PatientSchedule, NursePage).
+    const shiftRange = getCurrentShiftRange(now);
+    if (scheduledDate < shiftRange.start || scheduledDate > shiftRange.end) {
       return res.status(403).json({
         error:
-          "Solo puedes administrar medicación programada para el día de hoy.",
+          "Solo puedes administrar medicación de tu turno actual.",
       });
     }
 

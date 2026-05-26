@@ -1,7 +1,13 @@
 // src/routes/incidents.routes.ts
-import { Router } from 'express';
-import { authenticate } from '../middlewares/auth.middleware';
-import { getIncidents, getIncidentsByPatient, createIncident } from '../controllers/incidents.controller';
+import { Router } from "express";
+import { authenticate } from "../middlewares/auth.middleware";
+import {
+  getIncidents,
+  getIncidentsByPatient,
+  createIncident,
+  updateIncident,
+  deleteIncident,
+} from "../controllers/incidents.controller";
 
 const router = Router();
 
@@ -15,14 +21,8 @@ const router = Router();
  *     responses:
  *       200:
  *         description: Lista de incidencias
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 $ref: '#/components/schemas/Incident'
  */
-router.get('/', authenticate, getIncidents);
+router.get("/", authenticate, getIncidents);
 
 /**
  * @swagger
@@ -39,14 +39,8 @@ router.get('/', authenticate, getIncidents);
  *     responses:
  *       200:
  *         description: Lista de incidencias
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 $ref: '#/components/schemas/Incident'
  */
-router.get('/:patientId', authenticate, getIncidentsByPatient);
+router.get("/:patientId", authenticate, getIncidentsByPatient);
 
 /**
  * @swagger
@@ -66,12 +60,57 @@ router.get('/:patientId', authenticate, getIncidentsByPatient);
  *               patientId: { type: string, format: uuid }
  *               type: { type: string }
  *               description: { type: string }
+ *               severity: { type: string }
  *     responses:
  *       201:
  *         description: Incidencia registrada
- *       400:
- *         description: Validación fallida
  */
-router.post('/', authenticate, createIncident);
+router.post("/", authenticate, createIncident);
+
+/**
+ * @swagger
+ * /incidents/{id}:
+ *   put:
+ *     summary: Actualizar o resolver una incidencia
+ *     tags: [Incidents]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               status: { type: string }
+ *               severity: { type: string }
+ *               resolution: { type: string }
+ *               description: { type: string }
+ *     responses:
+ *       200:
+ *         description: Incidencia actualizada
+ */
+router.put("/:id", authenticate, updateIncident);
+
+/**
+ * @swagger
+ * /incidents/{id}:
+ *   delete:
+ *     summary: Eliminar una incidencia
+ *     tags: [Incidents]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Incidencia eliminada
+ */
+router.delete("/:id", authenticate, deleteIncident);
 
 export default router;

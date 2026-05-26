@@ -108,7 +108,7 @@ function getShiftWindows(): ShiftWindows {
   }
 
   return {
-    morning: { start: d(now, 0, 7, 0, 0, 0), end: d(now, 0, 14, 59, 59, 999) },
+    morning: { start: d(now, h >= 23 || h < 7 ? 1 : 0, 7, 0, 0, 0), end: d(now, h >= 23 || h < 7 ? 1 : 0, 14, 59, 59, 999) },
     afternoon: {
       start: d(now, 0, 15, 0, 0, 0),
       end: d(now, 0, 22, 59, 59, 999),
@@ -683,7 +683,7 @@ export default function NursePage() {
                                       ALL_SHIFTS.afternoon,
                                       ALL_SHIFTS.night,
                                     ]
-                                  : [ALL_SHIFTS.afternoon, ALL_SHIFTS.night];
+                                  : [ALL_SHIFTS.afternoon, ALL_SHIFTS.night, ALL_SHIFTS.morning];
                             const cols =
                               SHIFTS.length === 2
                                 ? "grid-cols-2"
