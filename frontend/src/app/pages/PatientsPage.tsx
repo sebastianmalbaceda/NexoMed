@@ -274,6 +274,20 @@ export default function PatientsPage() {
     setAdmValue('allergies', allergies.filter(a => a !== allergy));
   };
 
+  const [assignBedPatientId, setAssignBedPatientId] = useState<string | null>(null);
+  const [selectedBedId, setSelectedBedId] = useState('');
+
+  const assignBedMutation = useMutation({
+    mutationFn: ({ bedId, patientId }: { bedId: string; patientId: string }) =>
+      api.put(`/beds/${bedId}/assign`, { patientId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
+      queryClient.invalidateQueries({ queryKey: ['beds'] });
+      setAssignBedPatientId(null);
+      setSelectedBedId('');
+    },
+  });
+
   const filtered = patients.filter((p) =>
     p.name.toLowerCase().includes(search.toLowerCase()) ||
     p.surnames.toLowerCase().includes(search.toLowerCase()) ||
@@ -883,8 +897,40 @@ export default function PatientsPage() {
                           <BedDouble className="w-3 h-3" />
                           Hab. {p.bed.room}{p.bed.letter}
                         </span>
+                      ) : assignBedPatientId === p.id ? (
+                        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                          <select
+                            value={selectedBedId}
+                            onChange={(e) => setSelectedBedId(e.target.value)}
+                            className="text-xs border border-slate-200 rounded px-1 py-0.5 bg-white focus:outline-none focus:ring-1 ring-primary/30"
+                          >
+                            <option value="">Seleccionar...</option>
+                            {freeBeds.map((b) => (
+                              <option key={b.id} value={b.id}>Hab. {b.room}{b.letter}</option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() => selectedBedId && assignBedMutation.mutate({ bedId: selectedBedId, patientId: p.id })}
+                            disabled={!selectedBedId || assignBedMutation.isPending}
+                            className="p-0.5 rounded bg-primary text-white disabled:opacity-40 hover:bg-primary/80 transition-colors"
+                          >
+                            <Check className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setAssignBedPatientId(null); setSelectedBedId(''); }}
+                            className="p-0.5 rounded text-slate-400 hover:text-slate-600 transition-colors"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
                       ) : (
-                        <span className="text-muted-foreground">—</span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setAssignBedPatientId(p.id); setSelectedBedId(''); }}
+                          className="inline-flex items-center gap-1 text-xs text-primary/70 hover:text-primary transition-colors"
+                        >
+                          <BedDouble className="w-3 h-3" />
+                          Asignar cama
+                        </button>
                       )}
                     </td>
                     <td className="px-5 py-3.5 text-muted-foreground hidden lg:table-cell">
