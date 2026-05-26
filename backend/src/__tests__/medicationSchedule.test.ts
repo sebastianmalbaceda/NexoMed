@@ -115,7 +115,6 @@ afterAll(async () => {
         medParacetamolId,
         originalParacetamolStartTime,
         paracetamol.frequencyHrs,
-        24,
       );
     }
 
@@ -142,7 +141,6 @@ afterAll(async () => {
         medAmoxicilinaId,
         originalAmoxicilinaStartTime,
         amoxicilina.frequencyHrs,
-        24,
       );
     }
 
@@ -316,7 +314,6 @@ describe("Medication Schedule Integration Tests", () => {
             medParacetamolId,
             med.startTime,
             med.frequencyHrs,
-            24,
           );
         }
         // Reintentar
@@ -410,9 +407,8 @@ describe("Medication Schedule Integration Tests", () => {
       await prisma.medSchedule.delete({ where: { id: testSched.id } });
     });
 
-    it("debe devolver 403 si el schedule está fuera del turno actual", async () => {
-      // Crear un schedule con scheduledAt = ahora + 8h (siempre en otro turno,
-      // porque cada turno dura exactamente 8h)
+    it("debe devolver 403 si el schedule está más de 1h en el futuro", async () => {
+      // Crear un schedule con scheduledAt = ahora + 8h (muy en el futuro)
       const outsideShiftTime = new Date(Date.now() + 8 * 60 * 60 * 1000);
 
       const testSchedule = await prisma.medSchedule.create({
@@ -427,7 +423,7 @@ describe("Medication Schedule Integration Tests", () => {
         .set("Authorization", `Bearer ${nurseToken}`);
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toContain("turno");
+      expect(res.body.error).toContain("día actual");
 
       // Limpiar
       await prisma.medSchedule.delete({ where: { id: testSchedule.id } });
@@ -467,7 +463,6 @@ describe("Medication Schedule Integration Tests", () => {
         medParacetamolId,
         originalParacetamolStartTime,
         6, // frequencyHrs de Paracetamol
-        24,
       );
     });
   });
@@ -530,7 +525,6 @@ describe("Medication Schedule Integration Tests", () => {
         medParacetamolId,
         originalParacetamolStartTime,
         6,
-        24,
       );
 
       // Verificar que hay schedules pendientes antes de suspender
@@ -563,7 +557,6 @@ describe("Medication Schedule Integration Tests", () => {
         medParacetamolId,
         originalParacetamolStartTime,
         6,
-        24,
       );
     });
 
@@ -606,7 +599,6 @@ describe("Medication Schedule Integration Tests", () => {
         medParacetamolId,
         originalParacetamolStartTime,
         6,
-        24,
       );
     });
   });

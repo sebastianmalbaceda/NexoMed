@@ -7,12 +7,18 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Search, AlertCircle, Loader2, Calendar, BedDouble, ArrowLeft, Activity, Pill, FileText, Clock, UserPlus, X, Check, LogOut, HeartPulse, TestTube, Ban, Plus, ThumbsUp, ThumbsDown, FlaskConical, ImageIcon } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
-import { parseAllergies, getAllergiesCount } from '@/lib/patientUtils';
+import { parseAllergies, getAllergiesCount, fullName } from '@/lib/patientUtils';
 import { PatientSchedule } from '@/components/hospital/PatientSchedule';
 import type { Patient, Medication, CareRecord, VitalSigns, Bed, DiagnosticTest } from '@/lib/types';
 
 // Computed once at module load — avoids impure Date.now() calls during render
 const NOW_MS = new Date().getTime();
+
+// Produces a "YYYY-MM-DDTHH:mm" string in LOCAL time, suitable for datetime-local inputs.
+function toLocalDatetimeStr(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 function ageFromDob(dob: string): number {
   return Math.floor((NOW_MS - new Date(dob).getTime()) / (1000 * 60 * 60 * 24 * 365.25));
@@ -30,8 +36,10 @@ const medSchema = z.object({
   nregistro: z.string().optional(),
   dose: z.string().min(1, 'La dosis es obligatoria'),
   route: z.enum(['oral', 'IV', 'IM', 'SC', 'TOPICAL', 'SUBCUTANEOUS', 'RECTAL', 'INHALED'], { message: 'Vía no válida' }),
-  frequencyHrs: z.number().int().positive('La frecuencia debe ser mayor que 0'),
+  frequencyHrs: z.coerce.number().int().positive('La frecuencia debe ser mayor que 0'),
   startTime: z.string().min(1, 'La fecha de inicio es obligatoria'),
+  indefinite: z.boolean().default(true),
+  endDate: z.string().optional(),
 });
 
 type MedForm = z.infer<typeof medSchema>;
@@ -101,10 +109,13 @@ export default function PatientsPage() {
 
   // Formulario de medicación
   const [showMedForm, setShowMedForm] = useState(false);
+  const [editingMedId, setEditingMedId] = useState<string | null>(null);
   const {
     register: registerMed,
     handleSubmit: handleSubmitMed,
     reset: resetMed,
+    watch: watchMed,
+    setValue: setMedValue,
     formState: { errors: medErrors },
   } = useForm<MedForm>({
     resolver: zodResolver(medSchema),
@@ -114,21 +125,88 @@ export default function PatientsPage() {
       dose: '',
       route: 'oral',
       frequencyHrs: 8,
-      startTime: new Date().toISOString().slice(0, 16),
+      startTime: toLocalDatetimeStr(new Date()),
+      indefinite: true,
+      endDate: '',
     },
   });
+  const isIndefinite = watchMed('indefinite');
+
+  const openEditMed = (med: import('@/lib/types').Medication) => {
+    setEditingMedId(med.id);
+    setShowMedForm(true);
+    resetMed({
+      drugName: med.drugName,
+      nregistro: med.nregistro ?? '',
+      dose: med.dose,
+      route: med.route as MedForm['route'],
+      frequencyHrs: med.frequencyHrs,
+      // Show the stored UTC timestamp as local time in the datetime-local input
+      startTime: toLocalDatetimeStr(new Date(med.startTime)),
+      indefinite: !med.endDate,
+      endDate: med.endDate ? new Date(med.endDate).toLocaleDateString('en-CA') : '',
+    });
+  };
+
+  const closeMedForm = () => {
+    setShowMedForm(false);
+    setEditingMedId(null);
+    setMedFormError('');
+    resetMed({
+      drugName: '', nregistro: '', dose: '', route: 'oral',
+      frequencyHrs: 8, startTime: toLocalDatetimeStr(new Date()),
+      indefinite: true, endDate: '',
+    });
+  };
+
+  const [medFormError, setMedFormError] = useState('');
 
   const createMedMutation = useMutation({
-    mutationFn: (data: MedForm & { patientId: string }) =>
+    mutationFn: (data: MedForm) =>
       api.post('/medications', {
-        ...data,
+        drugName: data.drugName,
+        nregistro: data.nregistro,
+        dose: data.dose,
+        route: data.route,
+        frequencyHrs: data.frequencyHrs,
         patientId: selectedPatient!.id,
         startTime: new Date(data.startTime).toISOString(),
+        endDate: !data.indefinite && data.endDate ? new Date(data.endDate).toISOString() : null,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['medications', selectedPatient!.id] });
-      setShowMedForm(false);
-      resetMed();
+      queryClient.invalidateQueries({ queryKey: ['patient-schedule', selectedPatient!.id] });
+      setMedFormError('');
+      closeMedForm();
+    },
+    onError: (e: Error) => setMedFormError(e.message),
+  });
+
+  const editMedMutation = useMutation({
+    mutationFn: (data: MedForm & { id: string }) =>
+      api.put(`/medications/${data.id}`, {
+        drugName: data.drugName,
+        nregistro: data.nregistro,
+        dose: data.dose,
+        route: data.route,
+        frequencyHrs: data.frequencyHrs,
+        startTime: new Date(data.startTime).toISOString(),
+        endDate: !data.indefinite && data.endDate ? new Date(data.endDate).toISOString() : null,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['medications', selectedPatient!.id] });
+      queryClient.invalidateQueries({ queryKey: ['patient-schedule', selectedPatient!.id] });
+      setMedFormError('');
+      closeMedForm();
+    },
+    onError: (e: Error) => setMedFormError(e.message),
+  });
+
+  const deactivateMedMutation = useMutation({
+    mutationFn: (medId: string) => api.put(`/medications/${medId}/deactivate`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['medications', selectedPatient!.id] });
+      queryClient.invalidateQueries({ queryKey: ['patient-schedule', selectedPatient!.id] });
     },
   });
 
@@ -289,8 +367,7 @@ export default function PatientsPage() {
   });
 
   const filtered = patients.filter((p) =>
-    p.name.toLowerCase().includes(search.toLowerCase()) ||
-    p.surnames.toLowerCase().includes(search.toLowerCase()) ||
+    fullName(p).toLowerCase().includes(search.toLowerCase()) ||
     p.dni?.toLowerCase().includes(search.toLowerCase()) ||
     p.diagnosis.toLowerCase().includes(search.toLowerCase()),
   );
@@ -308,7 +385,7 @@ export default function PatientsPage() {
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">{selectedPatient.name} {selectedPatient.surnames}</h1>
+            <h1 className="text-2xl font-bold text-foreground">{fullName(selectedPatient)}</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               {selectedPatient.diagnosis}
             </p>
@@ -344,7 +421,7 @@ export default function PatientsPage() {
                   Cambiar estado
                 </button>
                 <button
-                  onClick={() => { if (window.confirm(`¿Dar de alta a ${selectedPatient.name} ${selectedPatient.surnames}?`)) dischargeMutation.mutate(selectedPatient.id); }}
+                  onClick={() => { if (window.confirm(`¿Dar de alta a ${fullName(selectedPatient)}?`)) dischargeMutation.mutate(selectedPatient.id); }}
                   disabled={dischargeMutation.isPending}
                   className="inline-flex items-center gap-1.5 text-sm bg-destructive/10 text-destructive px-3 py-1.5 rounded-full hover:bg-destructive/20 transition-colors disabled:opacity-50"
                 >
@@ -413,7 +490,7 @@ export default function PatientsPage() {
               <h3 className="font-semibold text-foreground">Medicación activa</h3>
               {isDoctor && (
                 <button
-                  onClick={() => setShowMedForm(!showMedForm)}
+                  onClick={() => showMedForm ? closeMedForm() : setShowMedForm(true)}
                   className="ml-auto text-xs bg-primary/10 text-primary px-2 py-1 rounded hover:bg-primary/20 transition-colors"
                 >
                   {showMedForm ? 'Cancelar' : 'Prescribir'}
@@ -426,14 +503,50 @@ export default function PatientsPage() {
               <ul className="space-y-3 mb-4">
                 {patientMedications.map((med) => (
                   <li key={med.id} className="text-sm border-b border-border pb-3 last:border-0 last:pb-0">
-                    <p className="font-medium text-foreground">{med.drugName}</p>
-                    <p className="text-muted-foreground mt-0.5">{med.dose} — cada {med.frequencyHrs}h</p>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-medium text-foreground">{med.drugName}</p>
+                        <p className="text-muted-foreground mt-0.5">{med.dose} — cada {med.frequencyHrs}h — {med.route}</p>
+                        {med.endDate ? (
+                          <p className="text-[11px] text-amber-600 mt-0.5">Hasta: {new Date(med.endDate).toLocaleDateString('es-ES')}</p>
+                        ) : (
+                          <p className="text-[11px] text-muted-foreground mt-0.5">Indefinida</p>
+                        )}
+                      </div>
+                      {isDoctor && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={() => openEditMed(med)}
+                            className="p-1 rounded text-blue-500 hover:bg-blue-50 transition-colors"
+                            title="Editar medicación"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => { if (window.confirm(`¿Suspender ${med.drugName}?`)) deactivateMedMutation.mutate(med.id); }}
+                            disabled={deactivateMedMutation.isPending}
+                            className="p-1 rounded text-red-400 hover:bg-red-50 transition-colors disabled:opacity-50"
+                            title="Suspender medicación"
+                          >
+                            <Ban className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>
             )}
             {showMedForm && isDoctor && (
-              <form onSubmit={handleSubmitMed((data) => createMedMutation.mutate({ ...data, patientId: selectedPatient!.id }))} className="space-y-3 pt-4 border-t border-border">
+              <form
+                onSubmit={handleSubmitMed((data) =>
+                  editingMedId
+                    ? editMedMutation.mutate({ ...data, id: editingMedId })
+                    : createMedMutation.mutate(data)
+                )}
+                className="space-y-3 pt-4 border-t border-border"
+              >
+                <p className="text-xs font-bold text-foreground">{editingMedId ? 'Editar medicación' : 'Nueva prescripción'}</p>
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-1">Fármaco *</label>
                   <input type="text" placeholder="Nombre del fármaco" {...registerMed('drugName')}
@@ -478,11 +591,42 @@ export default function PatientsPage() {
                     {medErrors.startTime && <p className="text-xs text-red-500 mt-1">{medErrors.startTime.message}</p>}
                   </div>
                 </div>
-                <button type="submit" disabled={createMedMutation.isPending}
-                  className="w-full py-2 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
-                >
-                  {createMedMutation.isPending ? 'Prescribiendo...' : 'Prescribir Medicación'}
-                </button>
+                <div>
+                  <label className="block text-xs font-medium text-foreground mb-1">Duración</label>
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                      <input type="radio" checked={isIndefinite} onChange={() => setMedValue('indefinite', true)}
+                        className="accent-primary" />
+                      Indefinida
+                    </label>
+                    <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                      <input type="radio" checked={!isIndefinite} onChange={() => setMedValue('indefinite', false)}
+                        className="accent-primary" />
+                      Hasta fecha
+                    </label>
+                  </div>
+                  {!isIndefinite && (
+                    <input type="date" {...registerMed('endDate')}
+                      className="mt-2 w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+                  )}
+                </div>
+                {medFormError && (
+                  <p className="text-xs text-red-600 font-medium bg-red-50 border border-red-200 rounded-lg px-3 py-2">{medFormError}</p>
+                )}
+                <div className="flex gap-2">
+                  <button type="submit" disabled={createMedMutation.isPending || editMedMutation.isPending}
+                    className="flex-1 py-2 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                  >
+                    {(createMedMutation.isPending || editMedMutation.isPending)
+                      ? 'Guardando...'
+                      : editingMedId ? 'Guardar cambios' : 'Prescribir Medicación'}
+                  </button>
+                  <button type="button" onClick={closeMedForm}
+                    className="px-4 py-2 text-sm rounded-lg border border-border hover:bg-accent transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
               </form>
             )}
           </div>
@@ -873,7 +1017,7 @@ export default function PatientsPage() {
                     onClick={() => navigate(`/patients/${p.id}`)}
                     className="border-t border-border hover:bg-accent/30 transition-colors cursor-pointer"
                   >
-                    <td className="px-5 py-3.5 font-medium text-foreground">{p.name} {p.surnames}</td>
+                    <td className="px-5 py-3.5 font-medium text-foreground">{fullName(p)}</td>
                     <td className="px-5 py-3.5 text-muted-foreground hidden md:table-cell">
                       {ageFromDob(p.dob)} años
                     </td>

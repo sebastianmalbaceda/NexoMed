@@ -16,7 +16,7 @@ import {
   ClipboardList,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import { parseAllergies, getAllergiesCount } from "@/lib/patientUtils";
+import { parseAllergies, getAllergiesCount, fullName } from "@/lib/patientUtils";
 import type { Patient, CareRecord, Medication, Incident } from "@/lib/types";
 
 const statusConfig: Record<string, { label: string; dot: string }> = {
@@ -520,7 +520,7 @@ export default function TCAEPage() {
                     >
                       <div className="flex items-center gap-1.5">
                         <p className="text-sm font-bold text-slate-900 truncate">
-                          {p.name} {p.surnames}
+                          {fullName(p)}
                         </p>
                         {(() => {
                           const sc =
@@ -583,7 +583,7 @@ export default function TCAEPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
                       <p className="font-black text-white">
-                        {selected.name} {selected.surnames}
+                        {fullName(selected)}
                       </p>
                       {(() => {
                         const sc =

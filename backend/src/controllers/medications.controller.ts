@@ -3,62 +3,46 @@ import { Response } from "express";
 import { prisma } from "../lib/prismaClient";
 import { AuthRequest } from "../middlewares/auth.middleware";
 import {
-  generateSchedulesForMedication,
   reschedulePendingMedication,
   ensureSchedulesForPeriod,
 } from "../services/medication.service";
 import { notifyNursesAboutMedicationChange } from "../services/notification.service";
 import {
   createMedicationSchema,
+  updateMedicationSchema,
   updateScheduleSchema,
 } from "../validations/medication.validation";
 import { handlePrismaError } from "../lib/errorHandler";
-
-// Returns the [start, end] timestamps of the currently active shift.
-// Night shift (23:00–06:59) crosses midnight, so we handle both halves.
-function getCurrentShiftRange(now: Date): { start: Date; end: Date } {
-  const h = now.getHours();
-  const start = new Date(now);
-  const end = new Date(now);
-
-  if (h >= 7 && h < 15) {
-    start.setHours(7, 0, 0, 0);
-    end.setHours(14, 59, 59, 999);
-  } else if (h >= 15 && h < 23) {
-    start.setHours(15, 0, 0, 0);
-    end.setHours(22, 59, 59, 999);
-  } else if (h >= 23) {
-    // Night, first half: 23:00 today → 06:59 tomorrow
-    start.setHours(23, 0, 0, 0);
-    const nextDay = new Date(now);
-    nextDay.setDate(nextDay.getDate() + 1);
-    nextDay.setHours(6, 59, 59, 999);
-    return { start, end: nextDay };
-  } else {
-    // Night, second half: 23:00 yesterday → 06:59 today
-    const prevDay = new Date(now);
-    prevDay.setDate(prevDay.getDate() - 1);
-    prevDay.setHours(23, 0, 0, 0);
-    end.setHours(6, 59, 59, 999);
-    return { start: prevDay, end };
-  }
-  return { start, end };
-}
-
-// Returns the [start, end] of the current calendar day (midnight to midnight).
-// Nurses can administer any dose scheduled for today, regardless of shift.
-function getCurrentDayRange(now: Date): { start: Date; end: Date } {
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(now);
-  end.setHours(23, 59, 59, 999);
-  return { start, end };
-}
 
 // GET /api/medications/:patientId — medicación activa del paciente
 export const getMedications = async (req: AuthRequest, res: Response) => {
   const { patientId } = req.params as { patientId: string };
   try {
+    const now = new Date();
+
+    // Auto-deactivate medications that have passed their endDate
+    const expired = await prisma.medication.findMany({
+      where: {
+        patientId,
+        active: true,
+        endDate: { lt: now },
+      },
+      select: { id: true },
+    });
+
+    if (expired.length > 0) {
+      const ids = expired.map((m) => m.id);
+      await prisma.$transaction([
+        prisma.medSchedule.deleteMany({
+          where: { medicationId: { in: ids }, administeredAt: null },
+        }),
+        prisma.medication.updateMany({
+          where: { id: { in: ids } },
+          data: { active: false },
+        }),
+      ]);
+    }
+
     const medications = await prisma.medication.findMany({
       where: { patientId, active: true },
       include: { prescribedBy: { select: { name: true, role: true } } },
@@ -68,7 +52,7 @@ export const getMedications = async (req: AuthRequest, res: Response) => {
     // Ensure each active medication has pending schedules for the next 72 h
     await Promise.all(
       medications.map((med) =>
-        ensureSchedulesForPeriod(med.id, med.startTime, med.frequencyHrs),
+        ensureSchedulesForPeriod(med.id, med.startTime, med.frequencyHrs, med.endDate),
       ),
     );
 
@@ -118,12 +102,16 @@ export const createMedication = async (req: AuthRequest, res: Response) => {
     route,
     frequencyHrs,
     startTime,
+    endDate,
   } = validation.data;
+
   try {
     const patient = await prisma.patient.findUnique({
       where: { id: patientId },
       select: { name: true },
     });
+
+    const parsedEnd = endDate ? new Date(endDate) : null;
 
     const medication = await prisma.$transaction(async (tx) => {
       const med = await tx.medication.create({
@@ -135,15 +123,14 @@ export const createMedication = async (req: AuthRequest, res: Response) => {
           route,
           frequencyHrs,
           startTime: new Date(startTime),
+          endDate: parsedEnd,
           prescribedById: req.user!.id,
         },
       });
 
-      // Generar horarios dentro de la misma transacción para atomicidad
       const schedules = [];
-      const endTime = new Date(
-        new Date(startTime).getTime() + 24 * 60 * 60 * 1000,
-      );
+      const rawEnd = new Date(new Date(startTime).getTime() + 72 * 60 * 60 * 1000);
+      const endTime = parsedEnd && parsedEnd < rawEnd ? parsedEnd : rawEnd;
       let current = new Date(startTime);
 
       while (current < endTime) {
@@ -177,6 +164,61 @@ export const createMedication = async (req: AuthRequest, res: Response) => {
   }
 };
 
+// PUT /api/medications/:id — editar medicación completa (solo DOCTOR)
+export const updateMedication = async (req: AuthRequest, res: Response) => {
+  const { id } = req.params as { id: string };
+
+  const validation = updateMedicationSchema.safeParse(req.body);
+  if (!validation.success) {
+    return res.status(400).json({ error: validation.error.issues[0].message });
+  }
+
+  const { drugName, nregistro, dose, route, frequencyHrs, startTime, endDate } = validation.data;
+
+  try {
+    const medication = await prisma.medication.findUnique({
+      where: { id },
+      include: { patient: { select: { name: true, id: true } } },
+    });
+
+    if (!medication) {
+      return res.status(404).json({ error: "Medicación no encontrada" });
+    }
+    if (!medication.active) {
+      return res.status(409).json({ error: "No se puede editar una medicación suspendida" });
+    }
+
+    const parsedStart = new Date(startTime);
+    const parsedEnd = endDate ? new Date(endDate) : null;
+
+    await prisma.$transaction(async (tx) => {
+      // Delete all pending schedules so they get regenerated
+      await tx.medSchedule.deleteMany({
+        where: { medicationId: id, administeredAt: null },
+      });
+
+      await tx.medication.update({
+        where: { id },
+        data: { drugName, nregistro, dose, route, frequencyHrs, startTime: parsedStart, endDate: parsedEnd },
+      });
+    });
+
+    // Regenerate schedules for the next 72h (ensureSchedulesForPeriod handles the window)
+    await ensureSchedulesForPeriod(id, parsedStart, frequencyHrs, parsedEnd);
+
+    await notifyNursesAboutMedicationChange(
+      medication.patientId,
+      "MED_CHANGE",
+      `Medicación actualizada para ${medication.patient?.name ?? "el paciente"}: ${drugName} ${dose}`,
+      req.user!.name,
+    );
+
+    res.json({ message: "Medicación actualizada correctamente" });
+  } catch (error) {
+    return handlePrismaError(error, res);
+  }
+};
+
 // PUT /api/medications/:id/deactivate — suspender medicación (solo DOCTOR)
 export const deactivateMedication = async (req: AuthRequest, res: Response) => {
   const { id } = req.params as { id: string };
@@ -191,7 +233,6 @@ export const deactivateMedication = async (req: AuthRequest, res: Response) => {
     }
 
     const updated = await prisma.$transaction(async (tx) => {
-      // Eliminar horarios pendientes de la medicación desactivada
       await tx.medSchedule.deleteMany({
         where: {
           medicationId: id,
@@ -218,7 +259,7 @@ export const deactivateMedication = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// PUT /api/medications/:id/schedule — cambiar hora de inicio de medicación (solo hora, mantiene frecuencia)
+// PUT /api/medications/:id/schedule — cambiar hora de inicio (solo hora, mantiene frecuencia)
 export const updateMedicationSchedule = async (
   req: AuthRequest,
   res: Response,
@@ -242,18 +283,22 @@ export const updateMedicationSchedule = async (
       return res.status(404).json({ error: "Medicación no encontrada" });
     }
 
+    const parsedNewStart = new Date(newStartTime);
+
     await reschedulePendingMedication(
       medication.id,
-      new Date(newStartTime),
+      parsedNewStart,
       medication.frequencyHrs,
-      24,
+      medication.endDate,
     );
 
-    // Actualizar la hora de inicio en la medicación para que el frontend la refleje correctamente
     await prisma.medication.update({
       where: { id },
-      data: { startTime: new Date(newStartTime) },
+      data: { startTime: parsedNewStart },
     });
+
+    // Regenerate schedules for the next 72 h with the new start time
+    await ensureSchedulesForPeriod(medication.id, parsedNewStart, medication.frequencyHrs, medication.endDate);
 
     await notifyNursesAboutMedicationChange(
       medication.patientId,
@@ -294,12 +339,14 @@ export const administerSchedule = async (req: AuthRequest, res: Response) => {
     const now = new Date();
     const scheduledDate = new Date(schedule.scheduledAt);
 
-    // Validate the dose falls within the current shift.
-    // Frontend already hides the button for doses outside the shift (PatientSchedule, NursePage).
-    const shiftRange = getCurrentShiftRange(now);
-    if (scheduledDate < shiftRange.start || scheduledDate > shiftRange.end) {
+    // Allow administering doses from the last 24 h or up to 1 h ahead.
+    // A strict shift-range check is avoided here because the server runs in UTC
+    // while nurses use local time (UTC+2 in Spain), causing spurious rejections.
+    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const oneHourAhead = new Date(now.getTime() + 60 * 60 * 1000);
+    if (scheduledDate < oneDayAgo || scheduledDate > oneHourAhead) {
       return res.status(403).json({
-        error: "Solo puedes administrar medicación de tu turno actual.",
+        error: "Solo puedes administrar medicación del día actual (no más de 1 h en el futuro).",
       });
     }
 

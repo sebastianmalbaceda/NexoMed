@@ -71,6 +71,7 @@ model Medication {
   route          String
   frequencyHrs   Int
   startTime      DateTime
+  endDate        DateTime?
   active         Boolean       @default(true)
   prescribedById String
   createdAt      DateTime      @default(now())

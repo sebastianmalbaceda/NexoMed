@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
-import { parseAllergies, getAllergiesCount } from '@/lib/patientUtils';
+import { parseAllergies, getAllergiesCount, fullName } from '@/lib/patientUtils';
 import type { Patient, DiagnosticTest } from '@/lib/types';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -146,7 +146,7 @@ export default function DiagnosticTestsPage() {
             className="appearance-none bg-white border border-slate-200 rounded-2xl px-4 py-2.5 pr-9 text-sm text-slate-800 font-medium shadow-sm focus:outline-none focus:ring-2 ring-blue-500/20 disabled:opacity-60 min-w-64"
           >
             <option value="">— Seleccionar paciente —</option>
-            {patients.map((p) => <option key={p.id} value={p.id}>{p.name} {p.surnames}</option>)}
+            {patients.map((p) => <option key={p.id} value={p.id}>{fullName(p)}</option>)}
           </select>
           <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
         </div>

@@ -4,6 +4,7 @@ import { authenticate, authorize } from '../middlewares/auth.middleware';
 import {
   getMedications,
   createMedication,
+  updateMedication,
   deactivateMedication,
   administerSchedule,
   updateMedicationSchedule
@@ -64,6 +65,7 @@ router.get('/:patientId', authenticate, getMedications);
  *         description: Validación fallida
  */
 router.post('/', authenticate, authorize('DOCTOR'), createMedication);
+router.put('/:id', authenticate, authorize('DOCTOR'), updateMedication);
 
 /**
  * @swagger

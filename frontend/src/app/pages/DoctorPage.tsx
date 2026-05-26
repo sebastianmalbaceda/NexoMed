@@ -13,14 +13,11 @@ import {
   X,
   Check,
   Trash2,
-  Calendar,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  CheckCircle2,
+  Pencil,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { parseAllergies, getAllergiesCount } from "@/lib/patientUtils";
+import { PatientSchedule } from "@/components/hospital/PatientSchedule";
 import type { Patient, Medication } from "@/lib/types";
 
 const FREQ_OPTIONS = [2, 4, 6, 8, 12, 24];
@@ -40,6 +37,12 @@ const ROUTE_OPTIONS = [
   { value: "TOPICAL", label: "Tópica" },
 ];
 
+// Produces a "YYYY-MM-DDTHH:mm" string in LOCAL time for datetime-local inputs.
+function toLocalDatetimeStr(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 const prescriptionSchema = z.object({
   drugName: z.string().min(1, "El medicamento es obligatorio"),
   nregistro: z.string().optional(),
@@ -56,6 +59,8 @@ const prescriptionSchema = z.object({
   ]),
   frequencyHrs: z.number().int().positive("La frecuencia debe ser mayor que 0"),
   startTime: z.string().min(1, "La fecha de inicio es obligatoria"),
+  indefinite: z.boolean().default(true),
+  endDate: z.string().optional(),
 });
 
 type PrescriptionForm = z.infer<typeof prescriptionSchema>;
@@ -69,9 +74,8 @@ export default function DoctorPage() {
   );
   const [showForm, setShowForm] = useState(!!state?.patientId);
   const [successMsg, setSuccessMsg] = useState("");
-  const [scheduleDate, setScheduleDate] = useState<string>(
-    new Date().toISOString().split("T")[0],
-  );
+  const [editingMedId, setEditingMedId] = useState<string | null>(null);
+  const [editStartHour, setEditStartHour] = useState(8);
 
   useEffect(() => {
     if (state?.patientId) {
@@ -85,6 +89,7 @@ export default function DoctorPage() {
     register,
     handleSubmit,
     reset,
+    watch,
     formState: { errors },
   } = useForm<PrescriptionForm>({
     resolver: zodResolver(prescriptionSchema),
@@ -94,9 +99,12 @@ export default function DoctorPage() {
       dose: "",
       route: "oral",
       frequencyHrs: 8,
-      startTime: "",
+      startTime: toLocalDatetimeStr(new Date()),
+      indefinite: true,
+      endDate: "",
     },
   });
+  const isIndefinite = watch("indefinite");
 
   const {
     data: patients = [],
@@ -117,12 +125,22 @@ export default function DoctorPage() {
   const prescriptionMutation = useMutation({
     mutationFn: (body: PrescriptionForm & { patientId: string }) =>
       api.post<Medication>("/medications", {
-        ...body,
+        patientId: body.patientId,
+        drugName: body.drugName,
+        nregistro: body.nregistro,
+        dose: body.dose,
+        route: body.route,
+        frequencyHrs: body.frequencyHrs,
         startTime: new Date(body.startTime).toISOString(),
+        endDate: !body.indefinite && body.endDate ? new Date(body.endDate).toISOString() : null,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["medications", selectedId] });
-      reset();
+      reset({
+        drugName: "", nregistro: "", dose: "", route: "oral",
+        frequencyHrs: 8, startTime: toLocalDatetimeStr(new Date()),
+        indefinite: true, endDate: "",
+      });
       setShowForm(false);
       setSuccessMsg("Medicación prescrita correctamente");
       setTimeout(() => setSuccessMsg(""), 3000);
@@ -133,6 +151,21 @@ export default function DoctorPage() {
     mutationFn: (id: string) => api.put(`/medications/${id}/deactivate`, {}),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["medications", selectedId] });
+    },
+  });
+
+  const scheduleUpdateMutation = useMutation({
+    mutationFn: ({ medId, startHour }: { medId: string; startHour: number }) => {
+      const newStart = new Date();
+      newStart.setHours(startHour, 0, 0, 0);
+      return api.put(`/medications/${medId}/schedule`, { newStartTime: newStart.toISOString() });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["medications", selectedId] });
+      qc.invalidateQueries({ queryKey: ["patient-schedule", selectedId] });
+      setEditingMedId(null);
+      setSuccessMsg("Horario guardado correctamente");
+      setTimeout(() => setSuccessMsg(""), 3000);
     },
   });
 
@@ -206,6 +239,7 @@ export default function DoctorPage() {
                         setSelectedId(p.id);
                         setSuccessMsg("");
                         setShowForm(false);
+                        setEditingMedId(null);
                       }}
                       className={`w-full text-left px-4 py-3 transition-all hover:bg-slate-50 border-l-4 ${isSelected ? "bg-blue-50 border-blue-500" : hasAllergy ? "border-red-300" : "border-transparent"}`}
                     >
@@ -429,6 +463,28 @@ export default function DoctorPage() {
                         )}
                       </div>
                     </div>
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          {...register("indefinite")}
+                          className="w-4 h-4 rounded accent-blue-600"
+                        />
+                        <span className="text-xs font-bold text-slate-600">Tratamiento indefinido</span>
+                      </label>
+                    </div>
+                    {!isIndefinite && (
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">
+                          Fecha fin
+                        </label>
+                        <input
+                          type="date"
+                          {...register("endDate")}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-blue-500/20"
+                        />
+                      </div>
+                    )}
                     {prescriptionMutation.isError && (
                       <p className="text-xs text-red-600 font-medium">
                         {prescriptionMutation.error.message}
@@ -474,191 +530,103 @@ export default function DoctorPage() {
                     Sin medicación activa
                   </p>
                 ) : (
-                  <ul className="divide-y divide-slate-100">
-                    {medications.map((m) => (
-                      <li key={m.id} className="px-5 py-4">
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-black text-slate-900 text-sm">
-                                {m.drugName}
-                              </span>
-                              <span
-                                className={`text-[10px] font-black px-2 py-0.5 rounded ${m.active ? "bg-emerald-500 text-white" : "bg-slate-300 text-slate-600"}`}
-                              >
-                                {m.active ? "ACTIVO" : "SUSPENDIDO"}
-                              </span>
-                            </div>
-                            <p className="text-xs text-slate-400 font-medium mt-0.5">
-                              {m.dose} · {m.route} · cada {m.frequencyHrs}h
-                            </p>
-                            {m.nregistro && (
-                              <p className="text-[10px] text-slate-400 mt-0.5">
-                                Reg: {m.nregistro}
+                  <div className="divide-y divide-slate-100">
+                    {medications.map((m) => {
+                      const isEditing = editingMedId === m.id;
+                      return (
+                        <div key={m.id} className="px-5 py-4">
+                          <div className="flex items-start justify-between gap-2 mb-1">
+                            <div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-black text-slate-900 text-sm">{m.drugName}</span>
+                                <span className={`text-[10px] font-black px-2 py-0.5 rounded ${m.active ? "bg-emerald-500 text-white" : "bg-slate-300 text-slate-600"}`}>
+                                  {m.active ? "ACTIVO" : "SUSPENDIDO"}
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-400 font-medium mt-0.5">
+                                {m.dose} · {m.route} · cada {m.frequencyHrs}h
                               </p>
-                            )}
+                              {m.nregistro && (
+                                <p className="text-[10px] text-slate-400 mt-0.5">Reg: {m.nregistro}</p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {m.active && (
+                                <button
+                                  onClick={() => {
+                                    if (isEditing) { setEditingMedId(null); return; }
+                                    setEditStartHour(new Date(m.startTime).getHours());
+                                    setEditingMedId(m.id);
+                                  }}
+                                  className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 px-2 py-1 rounded-lg hover:bg-slate-100 transition-colors font-bold"
+                                >
+                                  {isEditing ? <X className="w-3 h-3" /> : <Pencil className="w-3 h-3" />}
+                                  {isEditing ? "Cancelar" : "Horario"}
+                                </button>
+                              )}
+                              {m.active && (
+                                <button
+                                  onClick={() => { if (confirm("¿Suspender esta medicación?")) deactivateMutation.mutate(m.id); }}
+                                  className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700 font-bold"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  Suspender
+                                </button>
+                              )}
+                            </div>
                           </div>
-                          {m.active && (
-                            <button
-                              onClick={() => {
-                                if (confirm("¿Suspender esta medicación?"))
-                                  deactivateMutation.mutate(m.id);
-                              }}
-                              className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700 font-bold"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                              Suspender
-                            </button>
+                          <p className="text-[10px] text-slate-400">
+                            Inicio:{" "}
+                            {new Date(m.startTime).toLocaleString("es-ES", {
+                              day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+                            })}
+                          </p>
+                          {isEditing && (
+                            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mt-3">
+                              <p className="text-xs font-black text-amber-800 uppercase tracking-wide mb-2">Cambiar hora de inicio</p>
+                              <div className="flex gap-3 mb-2">
+                                <div className="flex-1">
+                                  <label className="block text-xs font-bold text-amber-700 mb-1">Nueva hora de inicio</label>
+                                  <select
+                                    value={editStartHour}
+                                    onChange={(e) => setEditStartHour(Number(e.target.value))}
+                                    className="w-full bg-white border border-amber-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 ring-amber-400/30"
+                                  >
+                                    {Array.from({ length: 24 }, (_, i) => (
+                                      <option key={i} value={i}>{String(i).padStart(2, "0")}:00</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              </div>
+                              <p className="text-xs text-amber-700 font-medium mb-2">
+                                Horarios resultantes (cada {m.frequencyHrs}h):{" "}
+                                {Array.from(
+                                  { length: Math.ceil((24 - editStartHour) / m.frequencyHrs) },
+                                  (_, i) => editStartHour + i * m.frequencyHrs,
+                                )
+                                  .filter((h) => h < 24)
+                                  .map((h) => `${String(h).padStart(2, "0")}:00`)
+                                  .join(" · ")}
+                              </p>
+                              <button
+                                onClick={() => scheduleUpdateMutation.mutate({ medId: m.id, startHour: editStartHour })}
+                                disabled={scheduleUpdateMutation.isPending}
+                                className="flex items-center gap-1.5 bg-amber-500 text-white text-xs font-black px-3 py-1.5 rounded-lg hover:bg-amber-600 transition-colors disabled:opacity-50"
+                              >
+                                {scheduleUpdateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                                Guardar horario
+                              </button>
+                            </div>
                           )}
                         </div>
-                        <p className="text-[10px] text-slate-400">
-                          Inicio:{" "}
-                          {new Date(m.startTime).toLocaleString("es-ES", {
-                            day: "2-digit",
-                            month: "short",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
 
-              {/* DOC-RF1: Cronograma de medicación por día */}
-              {medications.length > 0 && (
-                <div className="bg-white border border-slate-200 border-t-4 border-t-blue-400 rounded-2xl overflow-hidden shadow-sm">
-                  <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-xl bg-blue-500 flex items-center justify-center">
-                        <Calendar className="w-3.5 h-3.5 text-white" />
-                      </div>
-                      <h3 className="font-black text-slate-900">Cronograma</h3>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => {
-                          const d = new Date(scheduleDate + "T12:00:00");
-                          d.setDate(d.getDate() - 1);
-                          setScheduleDate(d.toISOString().split("T")[0]);
-                        }}
-                        className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
-                      >
-                        <ChevronLeft className="w-4 h-4 text-slate-500" />
-                      </button>
-                      <input
-                        type="date"
-                        value={scheduleDate}
-                        onChange={(e) => setScheduleDate(e.target.value)}
-                        className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 ring-blue-500/20"
-                      />
-                      <button
-                        onClick={() => {
-                          const d = new Date(scheduleDate + "T12:00:00");
-                          d.setDate(d.getDate() + 1);
-                          setScheduleDate(d.toISOString().split("T")[0]);
-                        }}
-                        className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
-                      >
-                        <ChevronRight className="w-4 h-4 text-slate-500" />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="p-4">
-                    {loadingMeds ? (
-                      <div className="flex justify-center py-8">
-                        <Loader2 className="w-5 h-5 animate-spin text-slate-300" />
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        {medications.map((med) => {
-                          const dayStart = new Date(scheduleDate + "T00:00:00");
-                          const dayEnd = new Date(
-                            scheduleDate + "T23:59:59.999",
-                          );
-                          const daySchedules = (med.schedules || [])
-                            .filter((s) => {
-                              const dt = new Date(s.scheduledAt);
-                              return dt >= dayStart && dt <= dayEnd;
-                            })
-                            .sort(
-                              (a, b) =>
-                                new Date(a.scheduledAt).getTime() -
-                                new Date(b.scheduledAt).getTime(),
-                            );
-
-                          if (daySchedules.length === 0) return null;
-
-                          return (
-                            <div
-                              key={med.id}
-                              className="bg-slate-50 border border-slate-100 rounded-xl p-3"
-                            >
-                              <p className="text-xs font-black text-slate-700 mb-2">
-                                💊 {med.drugName}{" "}
-                                <span className="text-slate-400 font-medium">
-                                  ({med.dose} · cada {med.frequencyHrs}h)
-                                </span>
-                              </p>
-                              <div className="flex flex-wrap gap-1.5">
-                                {daySchedules.map((s) => {
-                                  const dt = new Date(s.scheduledAt);
-                                  const timeStr = `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
-                                  const done = !!s.administeredAt;
-                                  const isPast = dt < new Date();
-                                  return (
-                                    <span
-                                      key={s.id}
-                                      className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full border font-bold ${
-                                        done
-                                          ? "bg-emerald-100 border-emerald-300 text-emerald-700"
-                                          : isPast
-                                            ? "bg-red-50 border-red-200 text-red-600"
-                                            : "bg-white border-slate-200 text-slate-600"
-                                      }`}
-                                      title={
-                                        done
-                                          ? `Administrado: ${new Date(s.administeredAt!).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`
-                                          : isPast
-                                            ? "Vencido"
-                                            : "Pendiente"
-                                      }
-                                    >
-                                      {done ? (
-                                        <CheckCircle2 className="w-3 h-3" />
-                                      ) : (
-                                        <Clock className="w-3 h-3" />
-                                      )}
-                                      {timeStr}
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          );
-                        })}
-                        {medications.every((med) => {
-                          const dayStart = new Date(scheduleDate + "T00:00:00");
-                          const dayEnd = new Date(
-                            scheduleDate + "T23:59:59.999",
-                          );
-                          return (
-                            (med.schedules || []).filter((s) => {
-                              const dt = new Date(s.scheduledAt);
-                              return dt >= dayStart && dt <= dayEnd;
-                            }).length === 0
-                          );
-                        }) && (
-                          <p className="text-sm text-slate-400 text-center py-6 font-medium">
-                            Sin horarios programados para este día
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
+              {/* DOC-RF1: Cronograma del día — usa el mismo componente unificado que la enfermera */}
+              <PatientSchedule patientId={selected.id} />
             </>
           )}
         </div>

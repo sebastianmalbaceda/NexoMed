@@ -8,7 +8,7 @@ import {
   FileWarning, Calendar, User, ChevronDown, Pill, ClipboardList
 } from 'lucide-react';
 import { api } from '@/lib/api';
-import { parseAllergies, getAllergiesCount } from '@/lib/patientUtils';
+import { parseAllergies, getAllergiesCount, fullName } from '@/lib/patientUtils';
 import type { Patient, Incident } from '@/lib/types';
 
 const statusConfig: Record<string, { label: string; dot: string }> = {
@@ -141,7 +141,7 @@ export default function IncidentsPage() {
             className="appearance-none bg-white border border-slate-200 rounded-2xl px-4 py-2.5 pr-9 text-sm text-slate-800 font-medium shadow-sm focus:outline-none focus:ring-2 ring-blue-500/20 disabled:opacity-60 min-w-64"
           >
             <option value="">— Todos los pacientes —</option>
-            {patients.map((p) => <option key={p.id} value={p.id}>{p.name} {p.surnames}</option>)}
+            {patients.map((p) => <option key={p.id} value={p.id}>{fullName(p)}</option>)}
           </select>
           <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
         </div>
@@ -192,7 +192,7 @@ export default function IncidentsPage() {
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-red-400/30"
               >
                 <option value="">— Seleccionar paciente —</option>
-                {patients.map((p) => <option key={p.id} value={p.id}>{p.name} {p.surnames}</option>)}
+                {patients.map((p) => <option key={p.id} value={p.id}>{fullName(p)}</option>)}
               </select>
               {errors.patientId && (
                 <p className="text-xs text-red-500 mt-1">{errors.patientId.message}</p>
@@ -239,7 +239,7 @@ export default function IncidentsPage() {
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
-              <p className="font-black text-white text-sm">{selectedPatient.name} {selectedPatient.surnames}</p>
+              <p className="font-black text-white text-sm">{fullName(selectedPatient)}</p>
               {(() => { const sc = statusConfig[selectedPatient.status] ?? statusConfig.ESTABLE; return <span className={`w-2 h-2 rounded-full shrink-0 ${sc.dot}`} title={sc.label} />; })()}
             </div>
             <p className="text-slate-400 text-xs">{selectedPatient.diagnosis}</p>

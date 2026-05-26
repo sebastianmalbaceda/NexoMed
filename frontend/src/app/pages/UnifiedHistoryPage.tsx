@@ -5,7 +5,7 @@ import { History, Loader2, ChevronDown, Clock, Pill, Activity, FileText, User, T
 import { api } from '@/lib/api';
 import { CARE_RECORD_TYPE_LABELS } from '@/lib/constants';
 import { useAuthStore } from '@/store/authStore';
-import { parseAllergies, getAllergiesCount } from '@/lib/patientUtils';
+import { parseAllergies, getAllergiesCount, fullName } from '@/lib/patientUtils';
 import type { Patient, CareRecord, Medication, MedSchedule, DiagnosticTest } from '@/lib/types';
 
 const statusConfig: Record<string, { label: string; dot: string }> = {
@@ -133,7 +133,7 @@ export default function UnifiedHistoryPage() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
-                <p className="font-black text-white">{selectedPatient.name} {selectedPatient.surnames}</p>
+                <p className="font-black text-white">{fullName(selectedPatient)}</p>
                 {(() => { const sc = statusConfig[selectedPatient.status] ?? statusConfig.ESTABLE; return <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${sc.dot}`} title={sc.label} />; })()}
               </div>
               <p className="text-xs text-slate-400">Historial clínico completo</p>

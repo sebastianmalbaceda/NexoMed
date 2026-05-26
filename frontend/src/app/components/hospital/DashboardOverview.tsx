@@ -11,6 +11,7 @@ import {
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { NOTIFICATION_TYPE_LABELS, POLLING_INTERVAL_MS } from '@/lib/constants';
+import { fullName } from '@/lib/patientUtils';
 import type { Patient, Bed, Notification } from '@/lib/types';
 
 function StatCard({
@@ -136,7 +137,7 @@ export function DashboardOverview() {
                       className="border-t border-border hover:bg-accent/30 cursor-pointer transition-colors"
                       onClick={() => navigate(role === 'TCAE' ? `/vitals?patientId=${p.id}` : `/patients/${p.id}`)}
                     >
-                      <td className="px-5 py-3 font-medium text-foreground">{p.name} {p.surnames}</td>
+                      <td className="px-5 py-3 font-medium text-foreground">{fullName(p)}</td>
                       <td className="px-5 py-3 text-muted-foreground hidden md:table-cell truncate max-w-50">
                         {p.diagnosis}
                       </td>
@@ -236,7 +237,7 @@ export function DashboardOverview() {
                   onClick={() => navigate('/beds')}
                   title={
                     bed.patient
-                      ? `${bed.patient.name} ${bed.patient.surnames} — Hab. ${bed.room}${bed.letter}`
+                      ? `${fullName(bed.patient)} — Hab. ${bed.room}${bed.letter}`
                       : `Hab. ${bed.room}${bed.letter} — Libre`
                   }
                   className={`w-10 h-10 rounded-lg border-2 text-xs font-semibold transition-colors ${

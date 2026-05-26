@@ -7,7 +7,24 @@ import {
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 
+// Returns true if scheduledAt is administrable: not yet administered, not more than 1 h in the future.
+// Mirrors the backend window (24 h past to 1 h ahead) so button visibility matches server validation.
+function isAdministrable(timestampISO: string): boolean {
+  const scheduled = new Date(timestampISO).getTime();
+  const now = Date.now();
+  return scheduled <= now + 60 * 60 * 1000 && scheduled >= now - 24 * 60 * 60 * 1000;
+}
+
 // SYS-RF6: cronograma de las tareas a realizarle al paciente dentro de su perfil.
+
+// Returns YYYY-MM-DD in LOCAL time, not UTC (avoids off-by-one when the UTC
+// date differs from the local date near midnight).
+function localDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
 interface ScheduleItem {
   id: string;
@@ -52,38 +69,21 @@ const SOURCE_LABELS: Record<string, string> = {
   DIAGNOSTIC_TEST: 'Prueba diagnóstica',
 };
 
-function getCurrentShiftRange(): { start: Date; end: Date } {
-  const now = new Date();
-  const h = now.getHours();
-  const start = new Date(now);
-  const end = new Date(now);
-  if (h >= 7 && h < 15) {
-    start.setHours(7, 0, 0, 0); end.setHours(14, 59, 59, 999);
-  } else if (h >= 15 && h < 23) {
-    start.setHours(15, 0, 0, 0); end.setHours(22, 59, 59, 999);
-  } else if (h >= 23) {
-    start.setHours(23, 0, 0, 0);
-    const nd = new Date(now); nd.setDate(nd.getDate() + 1); nd.setHours(6, 59, 59, 999);
-    return { start, end: nd };
-  } else {
-    const pd = new Date(now); pd.setDate(pd.getDate() - 1); pd.setHours(23, 0, 0, 0);
-    end.setHours(6, 59, 59, 999);
-    return { start: pd, end };
-  }
-  return { start, end };
-}
 
 export function PatientSchedule({ patientId }: { patientId: string }) {
   const { user } = useAuthStore();
   const qc = useQueryClient();
 
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(() => localDateStr(new Date()));
 
   const { data: scheduleItems = [], isLoading: loadingSchedule } = useQuery({
     queryKey: ['patient-schedule', patientId, selectedDate],
     queryFn: () => {
       const params = new URLSearchParams();
-      params.set('date', selectedDate);
+      // Send local-midnight boundaries as UTC so the backend finds schedules
+      // in the correct local day regardless of server timezone.
+      params.set('start', new Date(`${selectedDate}T00:00:00`).toISOString());
+      params.set('end', new Date(`${selectedDate}T23:59:59.999`).toISOString());
       params.set('patientId', patientId);
       return api.get<ScheduleItem[]>(`/schedule?${params.toString()}`);
     },
@@ -123,26 +123,26 @@ export function PatientSchedule({ patientId }: { patientId: string }) {
   };
 
   const goPrevDay = () => {
-    const d = new Date(selectedDate);
+    // Parse as local midnight to avoid UTC-offset day shifts
+    const d = new Date(`${selectedDate}T00:00:00`);
     d.setDate(d.getDate() - 1);
-    setSelectedDate(d.toISOString().split('T')[0]);
+    setSelectedDate(localDateStr(d));
   };
   const goNextDay = () => {
-    const d = new Date(selectedDate);
+    const d = new Date(`${selectedDate}T00:00:00`);
     d.setDate(d.getDate() + 1);
-    setSelectedDate(d.toISOString().split('T')[0]);
+    setSelectedDate(localDateStr(d));
   };
-  const goToday = () => setSelectedDate(new Date().toISOString().split('T')[0]);
+  const goToday = () => setSelectedDate(localDateStr(new Date()));
 
   const displayDate = new Date(`${selectedDate}T12:00:00`);
   const formattedDate = displayDate.toLocaleDateString('es-ES', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   });
-  const isToday = selectedDate === new Date().toISOString().split('T')[0];
+  const isToday = selectedDate === localDateStr(new Date());
 
   const isLoading = loadingSchedule;
   const canAdminister = user?.role === 'NURSE';
-  const shiftRange = getCurrentShiftRange();
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
@@ -229,8 +229,7 @@ export function PatientSchedule({ patientId }: { patientId: string }) {
                       item.status !== 'completed' &&
                       canAdminister &&
                       item.scheduleId &&
-                      new Date(item.timestamp) >= shiftRange.start &&
-                      new Date(item.timestamp) <= shiftRange.end && (
+                      isAdministrable(item.timestamp) && (
                         <button
                           onClick={() => administerMutation.mutate(item.scheduleId!)}
                           disabled={administerMutation.isPending}

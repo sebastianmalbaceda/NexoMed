@@ -17,7 +17,7 @@ export interface Patient {
   id: string;
   dni: string | null;
   name: string;
-  surnames: string;
+  surnames: string | null;
   /** ISO date string */
   dob: string;
   diagnosis: string;
@@ -55,6 +55,8 @@ export interface Medication {
   frequencyHrs: number;
   /** ISO date string */
   startTime: string;
+  /** ISO date string or null (null = indefinite) */
+  endDate: string | null;
   active: boolean;
   prescribedById: string;
   /** ISO date string */

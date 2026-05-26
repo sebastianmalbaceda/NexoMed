@@ -22,9 +22,14 @@ function startOfUtcDay(date: Date) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0, 0));
 }
 
-function buildDayRange(dateInput?: string): DateRange {
-  const baseDate = dateInput ? new Date(`${dateInput}T00:00:00.000Z`) : startOfUtcDay(new Date());
-  const start = startOfUtcDay(baseDate);
+function buildDayRange(query: GetScheduleQuery): DateRange {
+  // If the frontend sends explicit UTC timestamps for local midnight, use them directly.
+  // This avoids the UTC-vs-local-timezone mismatch for near-midnight schedules.
+  if (query.start && query.end) {
+    return { start: new Date(query.start), end: new Date(query.end) };
+  }
+  const base = query.date ? new Date(`${query.date}T00:00:00.000Z`) : startOfUtcDay(new Date());
+  const start = startOfUtcDay(base);
   const end = new Date(start);
   end.setUTCDate(end.getUTCDate() + 1);
   end.setUTCMilliseconds(end.getUTCMilliseconds() - 1);
@@ -59,7 +64,7 @@ function formatMedicationStatus(scheduledAt: Date, administeredAt: Date | null, 
 }
 
 export async function getScheduleItems(query: GetScheduleQuery) {
-  const dayRange = buildDayRange(query.date);
+  const dayRange = buildDayRange(query);
   const range = query.shift ? buildShiftRange(dayRange, query.shift) : dayRange;
   const now = new Date();
 
@@ -69,34 +74,30 @@ export async function getScheduleItems(query: GetScheduleQuery) {
     where: {
       active: true,
       ...(query.patientId ? { patientId: query.patientId } : {}),
-      ...(query.nurseId ? { patient: { assignedNurseId: query.nurseId } } : {}),
+      patient: {
+        discharged: false,
+        ...(query.nurseId ? { assignedNurseId: query.nurseId } : {}),
+      },
     },
-    select: { id: true, startTime: true, frequencyHrs: true },
+    select: { id: true, startTime: true, frequencyHrs: true, endDate: true },
   });
+  // Pass dayRange.end so schedules are generated even for days beyond the default 72h window.
   await Promise.all(
-    activeMeds.map((med) => ensureSchedulesForPeriod(med.id, med.startTime, med.frequencyHrs))
+    activeMeds.map((med) =>
+      ensureSchedulesForPeriod(med.id, med.startTime, med.frequencyHrs, med.endDate, dayRange.end)
+    )
   );
-
-  // SYS-RF5: el filtro nurseId limita las tareas a pacientes asignados a ese enfermero.
-  const patientFilter =
-    query.patientId || query.nurseId
-      ? {
-          ...(query.patientId ? { patientId: query.patientId } : {}),
-          ...(query.nurseId ? { patient: { assignedNurseId: query.nurseId } } : {}),
-        }
-      : undefined;
 
   const medicationSchedules = await prisma.medSchedule.findMany({
     where: {
       scheduledAt: { gte: range.start, lte: range.end },
       medication: {
         active: true,
-        ...(query.patientId || query.nurseId
-          ? {
-              ...(query.patientId ? { patientId: query.patientId } : {}),
-              ...(query.nurseId ? { patient: { assignedNurseId: query.nurseId } } : {}),
-            }
-          : {}),
+        ...(query.patientId ? { patientId: query.patientId } : {}),
+        patient: {
+          discharged: false,
+          ...(query.nurseId ? { assignedNurseId: query.nurseId } : {}),
+        },
       },
     },
     orderBy: { scheduledAt: 'asc' },
@@ -120,7 +121,11 @@ export async function getScheduleItems(query: GetScheduleQuery) {
   const careRecords = await prisma.careRecord.findMany({
     where: {
       recordedAt: { gte: range.start, lte: range.end },
-      ...(patientFilter ?? {}),
+      ...(query.patientId ? { patientId: query.patientId } : {}),
+      patient: {
+        discharged: false,
+        ...(query.nurseId ? { assignedNurseId: query.nurseId } : {}),
+      },
     },
     orderBy: { recordedAt: 'asc' },
     include: {
@@ -186,7 +191,10 @@ export async function getScheduleItems(query: GetScheduleQuery) {
       scheduledAt: { gte: range.start, lte: range.end },
       status: { in: ['APPROVED', 'COMPLETED'] },
       ...(query.patientId ? { patientId: query.patientId } : {}),
-      ...(query.nurseId ? { patient: { assignedNurseId: query.nurseId } } : {}),
+      patient: {
+        discharged: false,
+        ...(query.nurseId ? { assignedNurseId: query.nurseId } : {}),
+      },
     },
     orderBy: { scheduledAt: 'asc' },
     include: {

@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
-import { parseAllergies, getAllergiesCount } from "@/lib/patientUtils";
+import { parseAllergies, getAllergiesCount, fullName } from "@/lib/patientUtils";
 import type { Bed, Patient } from "@/lib/types";
 
 const getPatientEmoji = (dobString: string) => {
@@ -294,6 +294,9 @@ export default function BedMapPage() {
         );
       }
     },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["patients", "nurse", user?.id] });
+    },
     onError: () => {
       qc.invalidateQueries({ queryKey: ["beds"] });
     },
@@ -317,6 +320,9 @@ export default function BedMapPage() {
             : prev,
         );
       }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["patients", "nurse", user?.id] });
     },
     onError: () => {
       qc.invalidateQueries({ queryKey: ["beds"] });
@@ -502,7 +508,7 @@ export default function BedMapPage() {
                             </span>
                             <div className="flex items-center gap-1 min-w-0">
                               <p className="font-semibold text-slate-800 text-xs leading-tight truncate">
-                                {patient.name} {patient.surnames}
+                                {fullName(patient)}
                               </p>
                               {(() => {
                                 const dotColors: Record<string, string> = {
@@ -584,8 +590,7 @@ export default function BedMapPage() {
                     </div>
                     <div>
                       <h3 className="text-lg font-bold text-white leading-tight">
-                        {selectedBed.patient.name}{" "}
-                        {selectedBed.patient.surnames}
+                        {fullName(selectedBed.patient)}
                       </h3>
                       <p className="text-blue-300 text-xs font-bold mt-1">
                         NHC: {selectedBed.patient.id.slice(0, 8).toUpperCase()}
@@ -704,7 +709,7 @@ export default function BedMapPage() {
                         onClick={() => {
                           if (
                             window.confirm(
-                              `¿Dar de alta a ${selectedBed.patient!.name} ${selectedBed.patient!.surnames}? Se liberará la cama.`,
+                              `¿Dar de alta a ${fullName(selectedBed.patient!)}? Se liberará la cama.`,
                             )
                           ) {
                             dischargeMutation.mutate(selectedBed.patient!.id);
@@ -976,7 +981,7 @@ export default function BedMapPage() {
                     Reubicar Paciente
                   </h3>
                   <p className="text-xs text-slate-500 mt-1">
-                    {selectedBed.patient.name} {selectedBed.patient.surnames} →
+                    {fullName(selectedBed.patient)} →
                     Hab. {selectedBed.room} Cama {selectedBed.letter}
                   </p>
                 </div>

@@ -18,6 +18,48 @@ import {
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 
+function localDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function isAdministrable(timestampISO: string): boolean {
+  const scheduled = new Date(timestampISO).getTime();
+  const now = Date.now();
+  return scheduled <= now + 60 * 60 * 1000 && scheduled >= now - 24 * 60 * 60 * 1000;
+}
+
+function getShiftBounds(dateStr: string, shift?: string): { start: string; end: string } {
+  if (!shift) {
+    return {
+      start: new Date(`${dateStr}T00:00:00`).toISOString(),
+      end: new Date(`${dateStr}T23:59:59.999`).toISOString(),
+    };
+  }
+  if (shift === "morning") {
+    return {
+      start: new Date(`${dateStr}T07:00:00`).toISOString(),
+      end: new Date(`${dateStr}T14:59:59.999`).toISOString(),
+    };
+  }
+  if (shift === "afternoon") {
+    return {
+      start: new Date(`${dateStr}T15:00:00`).toISOString(),
+      end: new Date(`${dateStr}T22:59:59.999`).toISOString(),
+    };
+  }
+  // night: 23:00 current day to 06:59 next day (local time)
+  const next = new Date(`${dateStr}T12:00:00`);
+  next.setDate(next.getDate() + 1);
+  const nextDateStr = localDateStr(next);
+  return {
+    start: new Date(`${dateStr}T23:00:00`).toISOString(),
+    end: new Date(`${nextDateStr}T06:59:59.999`).toISOString(),
+  };
+}
+
 const STATUS_STYLES: Record<
   string,
   { bg: string; text: string; icon: string; label: string }
@@ -66,10 +108,7 @@ interface NurseOption {
 export default function NurseShiftSchedulePage() {
   const { user } = useAuthStore();
   const qc = useQueryClient();
-  const [selectedDate, setSelectedDate] = useState(() => {
-    const d = new Date();
-    return d.toISOString().split("T")[0];
-  });
+  const [selectedDate, setSelectedDate] = useState(() => localDateStr(new Date()));
   const [selectedShift, setSelectedShift] = useState<string>(() => {
     const h = new Date().getHours();
     if (h >= 7 && h < 15) return "morning";
@@ -105,21 +144,26 @@ export default function NurseShiftSchedulePage() {
   } = useQuery({
     queryKey: ["schedule", selectedDate, selectedShift, effectiveNurseId],
     queryFn: () => {
+      const bounds = getShiftBounds(selectedDate, shiftKey || undefined);
       const params = new URLSearchParams();
-      params.set("date", selectedDate);
-      if (shiftKey) params.set("shift", shiftKey);
+      params.set("start", bounds.start);
+      params.set("end", bounds.end);
       if (effectiveNurseId) params.set("nurseId", effectiveNurseId);
       return api.get<ScheduleItem[]>(`/schedule?${params.toString()}`);
     },
   });
 
+  const [administerError, setAdministerError] = useState("");
+
   const administerMutation = useMutation({
     mutationFn: (scheduleId: string) =>
       api.post(`/medications/schedules/${scheduleId}/administer`, {}),
     onSuccess: () => {
+      setAdministerError("");
       qc.invalidateQueries({ queryKey: ["schedule"] });
       qc.invalidateQueries({ queryKey: ["medications"] });
     },
+    onError: (e: Error) => setAdministerError(e.message),
   });
 
   const filteredItems = scheduleItems.filter((item) => {
@@ -160,15 +204,15 @@ export default function NurseShiftSchedulePage() {
   ).length;
 
   const goPrevDay = () => {
-    const d = new Date(selectedDate);
+    const d = new Date(`${selectedDate}T12:00:00`);
     d.setDate(d.getDate() - 1);
-    setSelectedDate(d.toISOString().split("T")[0]);
+    setSelectedDate(localDateStr(d));
   };
 
   const goNextDay = () => {
-    const d = new Date(selectedDate);
+    const d = new Date(`${selectedDate}T12:00:00`);
     d.setDate(d.getDate() + 1);
-    setSelectedDate(d.toISOString().split("T")[0]);
+    setSelectedDate(localDateStr(d));
   };
 
   const displayDate = new Date(selectedDate + "T12:00:00");
@@ -316,6 +360,12 @@ export default function NurseShiftSchedulePage() {
           Error al cargar el cronograma. Verifica que el backend esté activo.
         </div>
       )}
+      {administerError && (
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-2xl px-4 py-3 text-sm font-medium flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          {administerError}
+        </div>
+      )}
       {isLoading ? (
         <div className="flex justify-center py-20">
           <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
@@ -386,7 +436,8 @@ export default function NurseShiftSchedulePage() {
                           </div>
                         </div>
                         {item.status !== "completed" &&
-                          user?.role === "NURSE" && (
+                          user?.role === "NURSE" &&
+                          isAdministrable(item.timestamp) && (
                             <button
                               onClick={() => administerMutation.mutate(item.id)}
                               disabled={administerMutation.isPending}
