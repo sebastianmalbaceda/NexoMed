@@ -45,7 +45,7 @@ const CARE_COLORS: Record<string, string> = {
   constante: "bg-blue-100 text-blue-700 border-blue-200",
 };
 
-const careSchema = z.object({
+export const careSchema = z.object({
   type: z.enum(["cura", "higiene", "balance", "ingesta", "constante"], {
     message: "Tipo de cuidado no válido",
   }),
@@ -55,26 +55,26 @@ const careSchema = z.object({
 
 type CareForm = z.infer<typeof careSchema>;
 
-function shiftLabel(date: Date): string {
+export function shiftLabel(date: Date): string {
   const h = date.getHours();
   if (h >= 7 && h < 15) return "🌅 Mañana";
   if (h >= 15 && h < 23) return "🌆 Tarde";
   return "🌙 Noche";
 }
 
-function getCurrentShift(): "morning" | "afternoon" | "night" {
+export function getCurrentShift(): "morning" | "afternoon" | "night" {
   const h = new Date().getHours();
   if (h >= 7 && h < 15) return "morning";
   if (h >= 15 && h < 23) return "afternoon";
   return "night";
 }
 
-type ShiftKey = "morning" | "afternoon" | "night";
-type ShiftWindows = Record<ShiftKey, { start: Date; end: Date }>;
+export type ShiftKey = "morning" | "afternoon" | "night";
+export type ShiftWindows = Record<ShiftKey, { start: Date; end: Date }>;
 
 /** Returns absolute Date ranges for each shift (night correctly crosses midnight).
  *  During afternoon the night window points to TONIGHT so upcoming 00:xx doses appear. */
-function getShiftWindows(): ShiftWindows {
+export function getShiftWindows(): ShiftWindows {
   const now = new Date();
   const h = now.getHours();
 
@@ -108,7 +108,10 @@ function getShiftWindows(): ShiftWindows {
   }
 
   return {
-    morning: { start: d(now, h >= 23 || h < 7 ? 1 : 0, 7, 0, 0, 0), end: d(now, h >= 23 || h < 7 ? 1 : 0, 14, 59, 59, 999) },
+    morning: {
+      start: d(now, h >= 23 || h < 7 ? 1 : 0, 7, 0, 0, 0),
+      end: d(now, h >= 23 || h < 7 ? 1 : 0, 14, 59, 59, 999),
+    },
     afternoon: {
       start: d(now, 0, 15, 0, 0, 0),
       end: d(now, 0, 22, 59, 59, 999),
@@ -683,7 +686,11 @@ export default function NursePage() {
                                       ALL_SHIFTS.afternoon,
                                       ALL_SHIFTS.night,
                                     ]
-                                  : [ALL_SHIFTS.afternoon, ALL_SHIFTS.night, ALL_SHIFTS.morning];
+                                  : [
+                                      ALL_SHIFTS.afternoon,
+                                      ALL_SHIFTS.night,
+                                      ALL_SHIFTS.morning,
+                                    ];
                             const cols =
                               SHIFTS.length === 2
                                 ? "grid-cols-2"

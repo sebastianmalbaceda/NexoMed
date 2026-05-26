@@ -285,6 +285,12 @@ export const administerSchedule = async (req: AuthRequest, res: Response) => {
       return res.status(409).json({ error: "La medicación está suspendida" });
     }
 
+    if (schedule.administeredAt) {
+      return res
+        .status(409)
+        .json({ error: "Esta dosis ya ha sido administrada" });
+    }
+
     const now = new Date();
     const scheduledDate = new Date(schedule.scheduledAt);
 
@@ -293,8 +299,7 @@ export const administerSchedule = async (req: AuthRequest, res: Response) => {
     const shiftRange = getCurrentShiftRange(now);
     if (scheduledDate < shiftRange.start || scheduledDate > shiftRange.end) {
       return res.status(403).json({
-        error:
-          "Solo puedes administrar medicación de tu turno actual.",
+        error: "Solo puedes administrar medicación de tu turno actual.",
       });
     }
 
