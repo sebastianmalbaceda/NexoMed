@@ -21,7 +21,6 @@ import { useAuthStore } from "@/store/authStore";
 import { POLLING_INTERVAL_MS, NOTIFICATION_TYPE_LABELS } from "@/lib/constants";
 import { parseAllergies, getAllergiesCount } from "@/lib/patientUtils";
 import { PatientSchedule } from "@/components/hospital/PatientSchedule";
-import { NurseShiftCronogram } from "@/components/hospital/NurseShiftCronogram";
 import type {
   Patient,
   Medication,
@@ -561,14 +560,6 @@ export default function NursePage() {
                     })}
                   </div>
                 </div>
-              )}
-
-              {/* Tarea D del feedback: ventana sliding turno anterior / actual / siguiente */}
-              {medications.length > 0 && (
-                <NurseShiftCronogram
-                  patientId={selected.id}
-                  medications={medications}
-                />
               )}
 
               {/* SYS-RF1: Cronograma del día con navegación (igual que vista médico) */}
