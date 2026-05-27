@@ -132,6 +132,9 @@ export type IncidentType =
   | 'TRASLADO'
   | 'INCIDENCIA';
 
+export type IncidentSeverity = 'LEVE' | 'MODERADA' | 'GRAVE' | 'CRITICA';
+export type IncidentStatus = 'ABIERTA' | 'RESUELTA';
+
 export interface Incident {
   id: string;
   patientId: string;
@@ -141,6 +144,11 @@ export interface Incident {
   reportedById?: string;
   /** ISO date string */
   reportedAt: string;
+  severity?: IncidentSeverity | null;
+  status?: IncidentStatus;
+  resolution?: string | null;
+  resolvedAt?: string | null;
+  resolvedById?: string | null;
 }
 
 export type DiagnosticTestType = 'LAB' | 'IMAGING';
