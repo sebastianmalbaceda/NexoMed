@@ -109,6 +109,34 @@ function groupByShift(records: CareRecord[]): VitalGroup[] {
   return Array.from(map.values());
 }
 
+// Tarea E del feedback: el TCAE debe ver su historial de cuidados (higiene,
+// ingesta, balance) por turno. Limitamos sólo a tipos TCAE — no exponemos curas
+// de enfermería ni notas médicas.
+const TCAE_CARE_KINDS = new Set(["higiene", "ingesta", "balance"]);
+function groupTCAECareByShift(records: CareRecord[]): VitalGroup[] {
+  const map = new Map<string, VitalGroup>();
+  for (const r of records.filter((r) => TCAE_CARE_KINDS.has(r.type))) {
+    const d = new Date(r.recordedAt);
+    const sk = shiftKey(d);
+    if (!map.has(sk))
+      map.set(sk, {
+        shiftKey: sk,
+        shiftLabel: getShift(d).label,
+        dateLabel: d.toLocaleDateString("es-ES", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "2-digit",
+        }),
+        records: [],
+      });
+    map.get(sk)!.records.push(r);
+  }
+  // Más recientes primero
+  return Array.from(map.values()).sort((a, b) =>
+    b.shiftKey.localeCompare(a.shiftKey),
+  );
+}
+
 // ── TCAE-RF2: Restrictions ───────────────────────────────────────────────────
 export interface Restriction {
   type: "diet" | "isolation" | "mobility";
@@ -396,6 +424,7 @@ export default function TCAEPage() {
   });
 
   const vitalGroups = groupByShift(careRecords);
+  const tcaeCareGroups = groupTCAECareByShift(careRecords);
   const latestByType: Partial<Record<string, CareRecord>> = {};
   // Ordenar descendente para que la última iteración deje el registro más reciente
   const sortedCareRecords = [...careRecords].sort(
@@ -1082,6 +1111,99 @@ export default function TCAEPage() {
                               );
                             })}
                           </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Tarea E del feedback — Historial de cuidados TCAE (higiene/ingesta/balance)
+                  agrupado por turno. Limitado a registros TCAE, no expone curas ni notas
+                  médicas que no son competencia del TCAE. */}
+              <div className="bg-white border border-slate-200 border-t-4 border-t-emerald-400 rounded-2xl overflow-hidden shadow-sm">
+                <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100">
+                  <div className="w-7 h-7 rounded-xl bg-emerald-500 flex items-center justify-center">
+                    <Clock className="w-3.5 h-3.5 text-white" />
+                  </div>
+                  <h3 className="font-black text-slate-900">
+                    Cuidados TCAE por turno
+                  </h3>
+                  <span className="text-[10px] bg-emerald-100 text-emerald-700 font-black px-2 py-0.5 rounded-full ml-auto">
+                    Higiene · Ingesta · Balance
+                  </span>
+                </div>
+                <div className="p-5">
+                  {loadingCares ? (
+                    <div className="flex justify-center py-8">
+                      <Loader2 className="w-5 h-5 animate-spin text-slate-300" />
+                    </div>
+                  ) : tcaeCareGroups.length === 0 ? (
+                    <p className="text-sm text-slate-400 font-medium">
+                      Sin cuidados TCAE registrados aún
+                    </p>
+                  ) : (
+                    <div className="space-y-4 max-h-80 overflow-y-auto pr-1">
+                      {tcaeCareGroups.map((group) => (
+                        <div key={group.shiftKey}>
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="text-xs font-black text-slate-500 uppercase tracking-wide">
+                              {group.shiftLabel}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-bold">
+                              {group.dateLabel}
+                            </span>
+                          </div>
+                          <ul className="space-y-1.5">
+                            {group.records
+                              .slice()
+                              .sort(
+                                (a, b) =>
+                                  new Date(b.recordedAt).getTime() -
+                                  new Date(a.recordedAt).getTime(),
+                              )
+                              .map((r) => {
+                                const dt = new Date(r.recordedAt);
+                                const emoji =
+                                  r.type === "higiene"
+                                    ? "🧼"
+                                    : r.type === "ingesta"
+                                      ? "🍽️"
+                                      : "💧";
+                                return (
+                                  <li
+                                    key={r.id}
+                                    className="flex items-start gap-2 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2"
+                                  >
+                                    <span className="text-base shrink-0">
+                                      {emoji}
+                                    </span>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-bold text-slate-900">
+                                        {r.value}
+                                        {r.unit ? (
+                                          <span className="text-xs font-normal text-slate-400">
+                                            {" "}
+                                            {r.unit}
+                                          </span>
+                                        ) : null}
+                                      </p>
+                                      {r.notes && (
+                                        <p className="text-[11px] text-slate-500 italic mt-0.5">
+                                          {r.notes}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <span className="text-[10px] text-slate-400 font-bold shrink-0">
+                                      {dt.toLocaleTimeString("es-ES", {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })}
+                                    </span>
+                                  </li>
+                                );
+                              })}
+                          </ul>
                         </div>
                       ))}
                     </div>
